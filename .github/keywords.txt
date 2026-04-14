@@ -1,0 +1,8 @@
+github actions deployment ssh backup healthcheck hestiacp
+continuous integration continuous deployment ci/cd
+automated deployment server management web hosting
+static site deployment nodejs deployment wordpress
+ssh key management rsync deployment health monitoring
+backup automation retention policies production deployment
+staging environment development workflow automation
+devops infrastructure as code deployment pipeline
