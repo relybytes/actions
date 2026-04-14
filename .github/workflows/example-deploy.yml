@@ -64,7 +64,7 @@ jobs:
         run: npm run build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-files
           path: ${{ env.BUILD_DIRECTORY }}/
@@ -82,13 +82,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: build-files
           path: ${{ env.BUILD_DIRECTORY }}/
 
       - name: Setup SSH connection
-        uses: relybytes/actions/ssh-setup@v1
+        uses: relybytes/actions/ssh-setup@v1.0.0
         id: ssh
         with:
           host: ${{ secrets.STAGING_HOST }}
@@ -154,13 +154,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: build-files
           path: ${{ env.BUILD_DIRECTORY }}/
 
       - name: Create production backup
-        uses: relybytes/actions/hestia-backup@v1
+        uses: relybytes/actions/hestia-backup@v1.0.0
         id: backup
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
@@ -188,7 +188,7 @@ jobs:
           echo "Backup verified: $SIZE bytes"
 
       - name: Deploy to production
-        uses: relybytes/actions/hestia-deploy@v1
+        uses: relybytes/actions/hestia-deploy@v1.0.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
@@ -201,7 +201,7 @@ jobs:
           ssh_options: '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts'
 
       - name: Production healthcheck
-        uses: relybytes/actions/http-healthcheck@v1
+        uses: relybytes/actions/http-healthcheck@v1.0.0
         with:
           url: https://mysite.com/health
           expected_status: '200'
@@ -212,7 +212,7 @@ jobs:
           headers: '{"X-Healthcheck": "github-actions"}'
 
       - name: API healthcheck
-        uses: relybytes/actions/http-healthcheck@v1
+        uses: relybytes/actions/http-healthcheck@v1.0.0
         with:
           url: https://mysite.com/api/health
           method: 'GET'
@@ -252,7 +252,7 @@ jobs:
         site: [site1, site2, site3]
     steps:
       - name: Backup ${{ matrix.site }}
-        uses: relybytes/actions/hestia-backup@v1
+        uses: relybytes/actions/hestia-backup@v1.0.0
         with:
           host: ${{ secrets.BACKUP_HOST }}
           username: ${{ secrets.BACKUP_USER }}
@@ -271,7 +271,7 @@ jobs:
     environment: production
     steps:
       - name: Setup SSH connection
-        uses: relybytes/actions/ssh-setup@v1
+        uses: relybytes/actions/ssh-setup@v1.0.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
@@ -298,7 +298,7 @@ jobs:
           "
 
       - name: Verify rollback
-        uses: relybytes/actions/http-healthcheck@v1
+        uses: relybytes/actions/http-healthcheck@v1.0.0
         with:
           url: https://mysite.com/health
           expected_status: '200'
