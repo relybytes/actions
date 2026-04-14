@@ -97,7 +97,7 @@ jobs:
           connection_alias: staging_server
 
       - name: Backup current staging version
-        uses: relybytes/actions/hestia-backup@v1
+        uses: relybytes/actions/hestia-backup@v1.0.0
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
@@ -109,7 +109,7 @@ jobs:
           exclude_patterns: '*.log,cache/*,tmp/*'
 
       - name: Deploy to staging
-        uses: relybytes/actions/hestia-deploy@v1
+        uses: relybytes/actions/hestia-deploy@v1.0.0
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
@@ -121,7 +121,7 @@ jobs:
           rsync_options: '-avz --progress --exclude="*.map"'
 
       - name: Healthcheck staging
-        uses: relybytes/actions/http-healthcheck@v1
+        uses: relybytes/actions/http-healthcheck@v1.0.0
         with:
           url: https://staging.mysite.com/health
           expected_status: '200-299'
