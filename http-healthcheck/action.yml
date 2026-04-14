@@ -1,0 +1,347 @@
+name: "HTTP Healthcheck"
+description: "Verify HTTP endpoints are healthy after deployment"
+author: "RelyBytes"
+branding:
+  icon: "activity"
+  color: "green"
+
+inputs:
+  url:
+    description: "URL to check"
+    required: true
+  timeout:
+    description: "Request timeout in seconds"
+    required: false
+    default: "30"
+  retries:
+    description: "Number of retry attempts"
+    required: false
+    default: "3"
+  delay:
+    description: "Delay between retries in seconds"
+    required: false
+    default: "5"
+  expected_status:
+    description: "Expected HTTP status code(s) - comma separated or range (e.g., 200,201 or 200-299)"
+    required: false
+    default: "200-299"
+  expected_content:
+    description: "Expected content in response body (optional regex)"
+    required: false
+    default: ""
+  follow_redirects:
+    description: "Follow HTTP redirects"
+    required: false
+    default: "true"
+  user_agent:
+    description: "Custom User-Agent header"
+    required: false
+    default: "RelyBytes-Healthcheck/1.0"
+  headers:
+    description: "Custom headers (JSON format)"
+    required: false
+    default: "{}"
+  method:
+    description: "HTTP method"
+    required: false
+    default: "GET"
+  body:
+    description: "Request body for POST/PUT requests"
+    required: false
+    default: ""
+  fail_on_error:
+    description: "Fail workflow on healthcheck failure"
+    required: false
+    default: "true"
+
+outputs:
+  status:
+    description: "Healthcheck status (success/failed)"
+    value: ${{ steps.healthcheck.outputs.status }}
+  http_code:
+    description: "Final HTTP status code"
+    value: ${{ steps.healthcheck.outputs.http_code }}
+  response_time:
+    description: "Response time in milliseconds"
+    value: ${{ steps.healthcheck.outputs.response_time }}
+  attempts:
+    description: "Number of attempts made"
+    value: ${{ steps.healthcheck.outputs.attempts }}
+  response_body:
+    description: "Response body (first 1000 chars)"
+    value: ${{ steps.healthcheck.outputs.response_body }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        echo "::group::Validating inputs"
+
+        # Validate required URL
+        if [[ -z "${{ inputs.url }}" ]]; then
+          echo "::error::URL is required"
+          exit 1
+        fi
+
+        # Validate URL format
+        if [[ ! "${{ inputs.url }}" =~ ^https?:// ]]; then
+          echo "::error::URL must start with http:// or https://"
+          exit 1
+        fi
+
+        # Validate timeout
+        if ! [[ "${{ inputs.timeout }}" =~ ^[0-9]+$ ]] || [[ "${{ inputs.timeout }}" -lt 1 ]] || [[ "${{ inputs.timeout }}" -gt 300 ]]; then
+          echo "::error::Timeout must be between 1 and 300 seconds"
+          exit 1
+        fi
+
+        # Validate retries
+        if ! [[ "${{ inputs.retries }}" =~ ^[0-9]+$ ]] || [[ "${{ inputs.retries }}" -lt 1 ]] || [[ "${{ inputs.retries }}" -gt 10 ]]; then
+          echo "::error::Retries must be between 1 and 10"
+          exit 1
+        fi
+
+        # Validate delay
+        if ! [[ "${{ inputs.delay }}" =~ ^[0-9]+$ ]] || [[ "${{ inputs.delay }}" -lt 1 ]] || [[ "${{ inputs.delay }}" -gt 60 ]]; then
+          echo "::error::Delay must be between 1 and 60 seconds"
+          exit 1
+        fi
+
+        # Validate HTTP method
+        if [[ ! "${{ inputs.method }}" =~ ^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)$ ]]; then
+          echo "::error::Invalid HTTP method. Must be one of: GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH"
+          exit 1
+        fi
+
+        # Validate headers JSON
+        if [[ -n "${{ inputs.headers }}" ]] && ! echo "${{ inputs.headers }}" | python3 -m json.tool >/dev/null 2>&1; then
+          echo "::error::Headers must be valid JSON"
+          exit 1
+        fi
+
+        echo "Inputs validated successfully"
+        echo "::endgroup::"
+
+    - name: Setup curl command
+      shell: bash
+      id: setup
+      run: |
+        echo "::group::Setting up curl command"
+
+        URL="${{ inputs.url }}"
+        TIMEOUT="${{ inputs.timeout }}"
+        METHOD="${{ inputs.method }}"
+        USER_AGENT="${{ inputs.user_agent }}"
+        FOLLOW_REDIRECTS="${{ inputs.follow_redirects }}"
+        BODY="${{ inputs.body }}"
+
+        # Build curl command
+        CURL_CMD="curl -s -w '%{http_code}|%{time_total}|%{size_download}'"
+        CURL_CMD="$CURL_CMD --max-time $TIMEOUT"
+        CURL_CMD="$CURL_CMD --connect-timeout 10"
+        CURL_CMD="$CURL_CMD --user-agent '$USER_AGENT'"
+        CURL_CMD="$CURL_CMD -X $METHOD"
+
+        # Add redirect handling
+        if [[ "$FOLLOW_REDIRECTS" == "true" ]]; then
+          CURL_CMD="$CURL_CMD -L"
+        fi
+
+        # Add headers
+        if [[ -n "${{ inputs.headers }}" ]]; then
+          # Simple header processing - assume JSON format like {"Authorization": "Bearer token"}
+          HEADER_STRING='${{ inputs.headers }}'
+          # Remove braces and quotes, then split
+          HEADER_STRING=$(echo "$HEADER_STRING" | sed 's/[{}"]//g' | sed 's/,/ /g')
+          
+          # Add each header to curl command
+          for header_part in $HEADER_STRING; do
+            if [[ "$header_part" =~ ^([^:]+):(.+)$ ]]; then
+              KEY="${BASH_REMATCH[1]}"
+              VALUE="${BASH_REMATCH[2]}"
+              CURL_CMD="$CURL_CMD -H \"$KEY: $VALUE\""
+            fi
+          done
+        fi
+
+        # Add body for POST/PUT
+        if [[ -n "$BODY" && ("$METHOD" == "POST" || "$METHOD" == "PUT" || "$METHOD" == "PATCH") ]]; then
+          CURL_CMD="$CURL_CMD --data '$BODY'"
+        fi
+
+        # Add URL
+        CURL_CMD="$CURL_CMD '$URL'"
+
+        echo "curl_command=$CURL_CMD" >> $GITHUB_OUTPUT
+        echo "Curl command prepared"
+        echo "::endgroup::"
+
+    - name: Perform healthcheck
+      shell: bash
+      id: healthcheck
+      run: |
+        echo "::group::Performing healthcheck"
+
+        URL="${{ inputs.url }}"
+        RETRIES="${{ inputs.retries }}"
+        DELAY="${{ inputs.delay }}"
+        EXPECTED_STATUS="${{ inputs.expected_status }}"
+        EXPECTED_CONTENT="${{ inputs.expected_content }}"
+        FAIL_ON_ERROR="${{ inputs.fail_on_error }}"
+        CURL_CMD="${{ steps.setup.outputs.curl_command }}"
+
+        echo "Checking: $URL"
+        echo "Retries: $RETRIES, Delay: ${DELAY}s, Timeout: ${{ inputs.timeout }}s"
+        echo "Expected status: $EXPECTED_STATUS"
+
+        if [[ -n "$EXPECTED_CONTENT" ]]; then
+          echo "Expected content: $EXPECTED_CONTENT"
+        fi
+
+        # Parse expected status codes
+        parse_status_codes() {
+          local status_spec="$1"
+          local codes=()
+          
+          IFS=',' read -ra CODES <<< "$status_spec"
+          for code in "${CODES[@]}"; do
+            if [[ "$code" =~ ^[0-9]+-[0-9]+$ ]]; then
+              # Handle range (e.g., 200-299)
+              IFS='-' read -ra RANGE <<< "$code"
+              for ((i=${RANGE[0]}; i<=${RANGE[1]}; i++)); do
+                codes+=("$i")
+              done
+            else
+              # Handle single code
+              codes+=("$code")
+            fi
+          done
+          
+          printf '%s\n' "${codes[@]}"
+        }
+
+        mapfile -t EXPECTED_CODES < <(parse_status_codes "$EXPECTED_STATUS")
+
+        ATTEMPT=1
+        FINAL_STATUS="failed"
+        FINAL_HTTP_CODE="000"
+        FINAL_RESPONSE_TIME="0"
+        FINAL_RESPONSE_BODY=""
+
+        while [[ $ATTEMPT -le $RETRIES ]]; do
+          echo "Attempt $ATTEMPT/$RETRIES"
+          
+          # Execute curl command
+          START_TIME=$(date +%s%3N)
+          RESPONSE=$(eval "$CURL_CMD" 2>/dev/null)
+          END_TIME=$(date +%s%3N)
+          
+          # Parse response
+          HTTP_CODE="${RESPONSE##*|}"
+          RESPONSE_TIME="${RESPONSE#*|}"
+          RESPONSE_TIME="${RESPONSE_TIME%|*}"
+          RESPONSE_BODY="${RESPONSE%|*|*}"
+          
+          # Convert response time to milliseconds
+          RESPONSE_TIME_MS=$(echo "$RESPONSE_TIME * 1000" | bc 2>/dev/null || echo "${RESPONSE_TIME}")
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Time: ${RESPONSE_TIME_MS}ms"
+          
+          # Check status code
+          STATUS_OK=false
+          for code in "${EXPECTED_CODES[@]}"; do
+            if [[ "$HTTP_CODE" == "$code" ]]; then
+              STATUS_OK=true
+              break
+            fi
+          done
+          
+          if [[ "$STATUS_OK" == "true" ]]; then
+            echo "Status code check passed"
+            
+            # Check content if specified
+            if [[ -n "$EXPECTED_CONTENT" ]]; then
+              if echo "$RESPONSE_BODY" | grep -q -E "$EXPECTED_CONTENT"; then
+                echo "Content check passed"
+                FINAL_STATUS="success"
+                break
+              else
+                echo "Content check failed"
+                echo "Expected: $EXPECTED_CONTENT"
+                echo "Actual body (first 200 chars): ${RESPONSE_BODY:0:200}"
+              fi
+            else
+              FINAL_STATUS="success"
+              break
+            fi
+          else
+            echo "Status code check failed"
+            echo "Expected one of: ${EXPECTED_CODES[*]}"
+            echo "Received: $HTTP_CODE"
+          fi
+          
+          if [[ $ATTEMPT -lt $RETRIES ]]; then
+            echo "Retrying in ${DELAY}s..."
+            sleep "$DELAY"
+          fi
+          
+          ((ATTEMPT++))
+        done
+
+        # Set outputs
+        echo "status=$FINAL_STATUS" >> $GITHUB_OUTPUT
+        echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+        echo "response_time=$RESPONSE_TIME_MS" >> $GITHUB_OUTPUT
+        echo "attempts=$ATTEMPT" >> $GITHUB_OUTPUT
+        echo "response_body=${RESPONSE_BODY:0:1000}" >> $GITHUB_OUTPUT
+
+        # Display results
+        echo ""
+        echo "Healthcheck Results:"
+        echo "  Status: $FINAL_STATUS"
+        echo "  HTTP Code: $HTTP_CODE"
+        echo "  Response Time: ${RESPONSE_TIME_MS}ms"
+        echo "  Attempts: $ATTEMPT"
+
+        if [[ "$FINAL_STATUS" != "success" && "$FAIL_ON_ERROR" == "true" ]]; then
+          echo ""
+          echo "::error::Healthcheck failed after $ATTEMPT attempts"
+          exit 1
+        fi
+
+        echo "::endgroup::"
+
+    - name: Output summary
+      shell: bash
+      if: always()
+      run: |
+        echo "::group::Healthcheck Summary"
+
+        STATUS="${{ steps.healthcheck.outputs.status }}"
+        HTTP_CODE="${{ steps.healthcheck.outputs.http_code }}"
+        RESPONSE_TIME="${{ steps.healthcheck.outputs.response_time }}"
+        ATTEMPTS="${{ steps.healthcheck.outputs.attempts }}"
+
+        echo "Final Status: $STATUS"
+        echo "HTTP Code: $HTTP_CODE"
+        echo "Response Time: ${RESPONSE_TIME}ms"
+        echo "Total Attempts: $ATTEMPTS"
+
+        # Set workflow summary
+        if [[ "$STATUS" == "success" ]]; then
+          echo "## Healthcheck Success" >> $GITHUB_STEP_SUMMARY
+          echo "URL: ${{ inputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "HTTP Code: $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
+          echo "Response Time: ${RESPONSE_TIME}ms" >> $GITHUB_STEP_SUMMARY
+          echo "Attempts: $ATTEMPTS" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## Healthcheck Failed" >> $GITHUB_STEP_SUMMARY
+          echo "URL: ${{ inputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "HTTP Code: $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
+          echo "Attempts: $ATTEMPTS" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "::endgroup::"

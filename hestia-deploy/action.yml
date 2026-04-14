@@ -1,0 +1,332 @@
+name: "HestiaCP Deploy"
+description: "Deploy static sites to HestiaCP servers via SSH with rsync, backup and healthcheck support"
+author: "RelyBytes"
+branding:
+  icon: "server"
+  color: "blue"
+
+inputs:
+  host:
+    description: "SSH host address"
+    required: true
+  port:
+    description: "SSH port"
+    required: false
+    default: "22"
+  username:
+    description: "SSH username"
+    required: true
+  private_key:
+    description: "SSH private key"
+    required: true
+  source:
+    description: "Source directory to deploy"
+    required: false
+    default: "dist/"
+  target:
+    description: "Target directory on server"
+    required: true
+  delete:
+    description: "Delete files in target that are not in source"
+    required: false
+    default: "false"
+  backup:
+    description: "Create backup before deployment"
+    required: false
+    default: "true"
+  backup_retention:
+    description: "Number of backups to keep"
+    required: false
+    default: "7"
+  healthcheck_url:
+    description: "URL to check after deployment"
+    required: false
+  healthcheck_timeout:
+    description: "Healthcheck timeout in seconds"
+    required: false
+    default: "30"
+  healthcheck_retries:
+    description: "Healthcheck retry attempts"
+    required: false
+    default: "3"
+  rsync_options:
+    description: "Additional rsync options"
+    required: false
+    default: "-avz --progress"
+  ssh_options:
+    description: "Additional SSH options"
+    required: false
+    default: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+outputs:
+  deployment_time:
+    description: "Timestamp of deployment"
+    value: ${{ steps.deploy.outputs.deployment_time }}
+  backup_path:
+    description: "Path of created backup (if applicable)"
+    value: ${{ steps.backup.outputs.backup_path }}
+  healthcheck_status:
+    description: "Healthcheck result"
+    value: ${{ steps.healthcheck.outputs.healthcheck_status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        echo "::group::Validating inputs"
+
+        # Validate required inputs
+        if [[ -z "${{ inputs.host }}" ]]; then
+          echo "::error::Host is required"
+          exit 1
+        fi
+
+        if [[ -z "${{ inputs.username }}" ]]; then
+          echo "::error::Username is required"
+          exit 1
+        fi
+
+        if [[ -z "${{ inputs.private_key }}" ]]; then
+          echo "::error::Private key is required"
+          exit 1
+        fi
+
+        if [[ -z "${{ inputs.target }}" ]]; then
+          echo "::error::Target directory is required"
+          exit 1
+        fi
+
+        # Validate source directory exists
+        if [[ ! -d "${{ inputs.source }}" ]]; then
+          echo "::error::Source directory '${{ inputs.source }}' does not exist"
+          exit 1
+        fi
+
+        echo "Inputs validated successfully"
+        echo "::endgroup::"
+
+    - name: Setup SSH connection
+      shell: bash
+      run: |
+        echo "::group::Setting up SSH connection"
+
+        # Create SSH directory
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+
+        # Write private key
+        echo "${{ inputs.private_key }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+
+        # Add SSH config
+        cat > ~/.ssh/config << EOF
+        Host deploy_target
+          HostName ${{ inputs.host }}
+          Port ${{ inputs.port }}
+          User ${{ inputs.username }}
+          IdentityFile ~/.ssh/deploy_key
+          ${{ inputs.ssh_options }}
+        EOF
+
+        chmod 600 ~/.ssh/config
+
+        echo "SSH configuration completed"
+        echo "::endgroup::"
+
+    - name: Test SSH connection
+      shell: bash
+      run: |
+        echo "::group::Testing SSH connection"
+
+        if ! ssh deploy_target "echo 'SSH connection successful'" 2>/dev/null; then
+          echo "::error::Failed to establish SSH connection"
+          echo "Please check:"
+          echo "  - Host address and port"
+          echo "  - SSH credentials"
+          echo "  - Network connectivity"
+          exit 1
+        fi
+
+        echo "SSH connection verified"
+        echo "::endgroup::"
+
+    - name: Verify target directory
+      shell: bash
+      run: |
+        echo "::group::Verifying target directory"
+
+        # Check if target directory exists, create if not
+        ssh deploy_target "
+          if [[ ! -d '${{ inputs.target }}' ]]; then
+            echo 'Creating target directory: ${{ inputs.target }}'
+            mkdir -p '${{ inputs.target }}'
+            echo 'Target directory created successfully'
+          else
+            echo 'Target directory exists: ${{ inputs.target }}'
+          fi
+          
+          # Check write permissions
+          if [[ ! -w '${{ inputs.target }}' ]]; then
+            echo '::error::No write permissions for target directory'
+            exit 1
+          fi
+        "
+
+        echo "Target directory verified"
+        echo "::endgroup::"
+
+    - name: Create backup
+      id: backup
+      shell: bash
+      if: inputs.backup == 'true'
+      run: |
+        echo "::group::Creating backup"
+
+        BACKUP_DIR="${{ inputs.target }}/../backups"
+        TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+        BACKUP_NAME="backup_${TIMESTAMP}"
+        BACKUP_PATH="${BACKUP_DIR}/${BACKUP_NAME}"
+
+        # Create backup directory on server
+        ssh deploy_target "
+          mkdir -p '${BACKUP_DIR}'
+        "
+
+        # Check if target directory has content to backup
+        CONTENT_EXISTS=$(ssh deploy_target "
+          if [[ -d '${{ inputs.target }}' ]] && [[ \"\$(ls -A '${{ inputs.target }}' 2>/dev/null)\" ]]; then
+            echo 'true'
+          else
+            echo 'false'
+          fi
+        ")
+
+        if [[ "$CONTENT_EXISTS" == "true" ]]; then
+          echo "Creating backup of existing content..."
+          ssh deploy_target "
+            cp -r '${{ inputs.target }}' '${BACKUP_PATH}'
+            echo 'Backup created: ${BACKUP_PATH}'
+          "
+          
+          echo "backup_path=${BACKUP_PATH}" >> $GITHUB_OUTPUT
+          echo "Backup completed: ${BACKUP_PATH}"
+          
+          # Clean up old backups
+          echo "Cleaning up old backups (keeping ${{ inputs.backup_retention }})..."
+          ssh deploy_target "
+            cd '${BACKUP_DIR}'
+            ls -t | tail -n +$((${{ inputs.backup_retention }} + 1)) | xargs -r rm -rf
+          "
+        else
+          echo "No existing content found, skipping backup"
+          echo "backup_path=none" >> $GITHUB_OUTPUT
+        fi
+
+        echo "::endgroup::"
+
+    - name: Deploy files
+      id: deploy
+      shell: bash
+      run: |
+        echo "::group::Deploying files"
+
+        DEPLOY_START=$(date +%s)
+
+        # Prepare rsync command
+        RSYNC_CMD="rsync ${{ inputs.rsync_options }}"
+
+        if [[ "${{ inputs.delete }}" == "true" ]]; then
+          RSYNC_CMD="$RSYNC_CMD --delete"
+        fi
+
+        RSYNC_CMD="$RSYNC_CMD ${{ inputs.source }} deploy_target:${{ inputs.target }}/"
+
+        echo "Running: $RSYNC_CMD"
+        if ! eval $RSYNC_CMD; then
+          echo "::error::Deployment failed during rsync"
+          exit 1
+        fi
+
+        DEPLOY_END=$(date +%s)
+        DEPLOY_DURATION=$((DEPLOY_END - DEPLOY_START))
+
+        echo "Deployment completed in ${DEPLOY_DURATION} seconds"
+        echo "deployment_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+
+        echo "::endgroup::"
+
+    - name: Verify deployment
+      shell: bash
+      run: |
+        echo "::group::Verifying deployment"
+
+        # Check if files were deployed successfully
+        FILE_COUNT=$(ssh deploy_target "
+          find '${{ inputs.target }}' -type f | wc -l
+        ")
+
+        if [[ "$FILE_COUNT" -eq 0 ]]; then
+          echo "::error::No files found in target directory after deployment"
+          exit 1
+        fi
+
+        echo "Deployment verified: $FILE_COUNT files deployed"
+        echo "::endgroup::"
+
+    - name: Healthcheck
+      id: healthcheck
+      shell: bash
+      if: inputs.healthcheck_url != ''
+      run: |
+        echo "::group::Performing healthcheck"
+
+        HEALTHCHECK_URL="${{ inputs.healthcheck_url }}"
+        TIMEOUT="${{ inputs.healthcheck_timeout }}"
+        RETRIES="${{ inputs.healthcheck_retries }}"
+
+        echo "Checking: $HEALTHCHECK_URL"
+        echo "Timeout: ${TIMEOUT}s, Retries: $RETRIES"
+
+        for i in $(seq 1 $RETRIES); do
+          echo "Attempt $i/$RETRIES"
+          
+          RESPONSE=$(curl -s -w "%{http_code}" \
+            --max-time "$TIMEOUT" \
+            --connect-timeout 10 \
+            "$HEALTHCHECK_URL" || echo "000")
+          
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          
+          if [[ "$HTTP_CODE" =~ ^[23] ]]; then
+            echo "Healthcheck passed (HTTP $HTTP_CODE)"
+            echo "healthcheck_status=success" >> $GITHUB_OUTPUT
+            break
+          else
+            echo "Healthcheck failed (HTTP $HTTP_CODE)"
+            if [[ $i -eq $RETRIES ]]; then
+              echo "::error::Healthcheck failed after $RETRIES attempts"
+              echo "healthcheck_status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            echo "Retrying in 5 seconds..."
+            sleep 5
+          fi
+        done
+
+        echo "::endgroup::"
+
+    - name: Cleanup
+      shell: bash
+      if: always()
+      run: |
+        echo "::group::Cleanup"
+
+        # Remove SSH key
+        rm -f ~/.ssh/deploy_key
+        rm -f ~/.ssh/config
+
+        echo "Cleanup completed"
+        echo "::endgroup::"
