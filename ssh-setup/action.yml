@@ -23,10 +23,6 @@ inputs:
     description: "Known hosts content (optional)"
     required: false
     default: ""
-  ssh_options:
-    description: "Additional SSH options"
-    required: false
-    default: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   connection_alias:
     description: "SSH connection alias for later use"
     required: false
@@ -49,34 +45,42 @@ runs:
   steps:
     - name: Validate inputs
       shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_ALIAS: ${{ inputs.connection_alias }}
       run: |
         echo "::group::Validating inputs"
 
-        # Check required inputs
-        if [[ -z "${{ inputs.host }}" ]]; then
+        if [[ -z "$INPUT_HOST" ]]; then
           echo "::error::Host is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.username }}" ]]; then
+        if [[ -z "$INPUT_USERNAME" ]]; then
           echo "::error::Username is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.private_key }}" ]]; then
+        if [[ -z "$INPUT_PRIVATE_KEY" ]]; then
           echo "::error::Private key is required"
           exit 1
         fi
 
-        # Validate host format
-        if [[ ! "${{ inputs.host }}" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        if [[ ! "$INPUT_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]; then
           echo "::error::Invalid host format"
           exit 1
         fi
 
-        # Validate port
-        if ! [[ "${{ inputs.port }}" =~ ^[0-9]+$ ]] || [[ "${{ inputs.port }}" -lt 1 ]] || [[ "${{ inputs.port }}" -gt 65535 ]]; then
+        if ! [[ "$INPUT_PORT" =~ ^[0-9]+$ ]] || [[ "$INPUT_PORT" -lt 1 ]] || [[ "$INPUT_PORT" -gt 65535 ]]; then
           echo "::error::Port must be between 1 and 65535"
+          exit 1
+        fi
+
+        if [[ ! "$INPUT_ALIAS" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+          echo "::error::connection_alias must contain only alphanumeric characters, hyphens, or underscores"
           exit 1
         fi
 
@@ -87,27 +91,21 @@ runs:
       shell: bash
       run: |
         echo "::group::Setting up SSH directory"
-
-        # Create SSH directory with proper permissions
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
-
-        # Set correct ownership
-        chown $(whoami):$(whoami) ~/.ssh
-
         echo "SSH directory created: ~/.ssh"
         echo "::endgroup::"
 
     - name: Setup SSH key
       shell: bash
+      env:
+        PRIVATE_KEY: ${{ inputs.private_key }}
       run: |
         echo "::group::Setting up SSH key"
 
-        # Write private key with proper permissions
-        echo "${{ inputs.private_key }}" > ~/.ssh/deploy_key
+        printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/deploy_key
         chmod 600 ~/.ssh/deploy_key
 
-        # Verify key format
         if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
           echo "::error::Invalid SSH private key format"
           rm -f ~/.ssh/deploy_key
@@ -120,68 +118,84 @@ runs:
 
     - name: Setup known hosts
       shell: bash
+      env:
+        KNOWN_HOSTS_CONTENT: ${{ inputs.known_hosts }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
       run: |
         echo "::group::Setting up known hosts"
 
-        if [[ -n "${{ inputs.known_hosts }}" ]]; then
-          # Use provided known hosts
-          echo "${{ inputs.known_hosts }}" > ~/.ssh/known_hosts
+        touch ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+
+        if [[ -n "$KNOWN_HOSTS_CONTENT" ]]; then
+          printf '%s\n' "$KNOWN_HOSTS_CONTENT" > ~/.ssh/known_hosts
+          echo "SSH_STRICT_HOST_CHECKING=yes" >> "$GITHUB_ENV"
           echo "Using provided known_hosts"
         else
-          # Auto-scan host key
-          echo "Scanning host key for ${{ inputs.host }}:${{ inputs.port }}"
-          
-          # Remove existing host key if present
-          ssh-keygen -R "${{ inputs.host }}" -f ~/.ssh/known_hosts 2>/dev/null || true
-          
-          # Scan and add host key
-          if ! ssh-keyscan -p "${{ inputs.port }}" "${{ inputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null; then
-            echo "::warning::Failed to scan host key, using StrictHostKeyChecking=no"
-          else
+          echo "Scanning host key for $INPUT_HOST:$INPUT_PORT"
+          ssh-keygen -R "$INPUT_HOST" -f ~/.ssh/known_hosts 2>/dev/null || true
+          if ssh-keyscan -p "$INPUT_PORT" "$INPUT_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
             echo "Host key scanned and added"
+            echo "SSH_STRICT_HOST_CHECKING=yes" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Failed to scan host key, will use StrictHostKeyChecking=accept-new"
+            echo "SSH_STRICT_HOST_CHECKING=accept-new" >> "$GITHUB_ENV"
           fi
         fi
 
-        chmod 644 ~/.ssh/known_hosts
         echo "Known hosts configured"
         echo "::endgroup::"
 
     - name: Create SSH config
       shell: bash
+      env:
+        INPUT_ALIAS: ${{ inputs.connection_alias }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
       run: |
         echo "::group::Creating SSH config"
 
-        # Create SSH config file
-        cat > ~/.ssh/config << EOF
-        Host ${{ inputs.connection_alias }}
-          HostName ${{ inputs.host }}
-          Port ${{ inputs.port }}
-          User ${{ inputs.username }}
-          IdentityFile ~/.ssh/deploy_key
-          ${{ inputs.ssh_options }}
-          ConnectTimeout ${{ inputs.timeout }}
-        EOF
+        STRICT_CHECK="${SSH_STRICT_HOST_CHECKING:-accept-new}"
+        if [[ "$STRICT_CHECK" == "yes" ]]; then
+          KNOWN_HOSTS_LINE="  UserKnownHostsFile ~/.ssh/known_hosts"
+        else
+          KNOWN_HOSTS_LINE="  UserKnownHostsFile /dev/null"
+        fi
+
+        {
+          echo "Host $INPUT_ALIAS"
+          echo "  HostName $INPUT_HOST"
+          echo "  Port $INPUT_PORT"
+          echo "  User $INPUT_USER"
+          echo "  IdentityFile ~/.ssh/deploy_key"
+          echo "  StrictHostKeyChecking $STRICT_CHECK"
+          echo "$KNOWN_HOSTS_LINE"
+          echo "  ConnectTimeout $INPUT_TIMEOUT"
+        } > ~/.ssh/config
 
         chmod 600 ~/.ssh/config
-
-        echo "SSH config created for alias: ${{ inputs.connection_alias }}"
-        echo "Config contents:"
-        cat ~/.ssh/config
+        echo "SSH config created for alias: $INPUT_ALIAS (StrictHostKeyChecking=$STRICT_CHECK)"
         echo "::endgroup::"
 
     - name: Test SSH connection
       id: test
       shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
       run: |
         echo "::group::Testing SSH connection"
 
         CONNECTION_ALIAS="${{ inputs.connection_alias }}"
         TIMEOUT="${{ inputs.timeout }}"
 
-        echo "Testing connection to ${{ inputs.host }}:${{ inputs.port }} as ${{ inputs.username }}"
+        echo "Testing connection to $INPUT_HOST:$INPUT_PORT as $INPUT_USER"
         echo "Timeout: ${TIMEOUT}s"
 
-        # Test basic connectivity
         if ! timeout "$TIMEOUT" ssh "$CONNECTION_ALIAS" "echo 'SSH connection successful'" 2>/dev/null; then
           echo "::error::SSH connection test failed"
           echo "Please verify:"
@@ -192,7 +206,6 @@ runs:
           exit 1
         fi
 
-        # Test command execution
         REMOTE_USER=$(ssh "$CONNECTION_ALIAS" "whoami" 2>/dev/null)
         REMOTE_HOSTNAME=$(ssh "$CONNECTION_ALIAS" "hostname" 2>/dev/null)
 
@@ -207,37 +220,46 @@ runs:
 
     - name: Setup environment variables
       shell: bash
+      env:
+        INPUT_ALIAS: ${{ inputs.connection_alias }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
       run: |
         echo "::group::Setting up environment variables"
 
-        # Export SSH connection alias for subsequent steps
-        echo "SSH_ALIAS=${{ inputs.connection_alias }}" >> $GITHUB_ENV
-        echo "SSH_HOST=${{ inputs.host }}" >> $GITHUB_ENV
-        echo "SSH_PORT=${{ inputs.port }}" >> $GITHUB_ENV
-        echo "SSH_USER=${{ inputs.username }}" >> $GITHUB_ENV
+        echo "SSH_ALIAS=$INPUT_ALIAS" >> "$GITHUB_ENV"
+        echo "SSH_HOST=$INPUT_HOST" >> "$GITHUB_ENV"
+        echo "SSH_PORT=$INPUT_PORT" >> "$GITHUB_ENV"
+        echo "SSH_USER=$INPUT_USER" >> "$GITHUB_ENV"
 
         echo "Environment variables set:"
-        echo "  SSH_ALIAS=${{ inputs.connection_alias }}"
-        echo "  SSH_HOST=${{ inputs.host }}"
-        echo "  SSH_PORT=${{ inputs.port }}"
-        echo "  SSH_USER=${{ inputs.username }}"
+        echo "  SSH_ALIAS=$INPUT_ALIAS"
+        echo "  SSH_HOST=$INPUT_HOST"
+        echo "  SSH_PORT=$INPUT_PORT"
+        echo "  SSH_USER=$INPUT_USER"
 
         echo "::endgroup::"
 
     - name: Output connection info
       shell: bash
+      env:
+        INPUT_ALIAS: ${{ inputs.connection_alias }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
       run: |
         echo "::group::Connection information"
 
         echo "SSH connection is ready for use!"
         echo ""
         echo "Usage examples:"
-        echo "  ssh ${{ inputs.connection_alias }} 'ls -la'"
-        echo "  scp ${{ inputs.connection_alias }}:remote/file ./local/file"
-        echo "  rsync -avz ./local/ ${{ inputs.connection_alias }}:remote/"
+        echo "  ssh $INPUT_ALIAS 'ls -la'"
+        echo "  scp $INPUT_ALIAS:remote/file ./local/file"
+        echo "  rsync -avz ./local/ $INPUT_ALIAS:remote/"
         echo ""
-        echo "Connection alias: ${{ inputs.connection_alias }}"
-        echo "Host: ${{ inputs.host }}:${{ inputs.port }}"
-        echo "User: ${{ inputs.username }}"
+        echo "Connection alias: $INPUT_ALIAS"
+        echo "Host: $INPUT_HOST:$INPUT_PORT"
+        echo "User: $INPUT_USER"
 
         echo "::endgroup::"
