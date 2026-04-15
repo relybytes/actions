@@ -118,6 +118,11 @@ runs:
 
     - name: Setup SSH connection
       shell: bash
+      env:
+        PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
       run: |
         echo "::group::Setting up SSH connection"
 
@@ -126,19 +131,20 @@ runs:
         chmod 700 ~/.ssh
 
         # Write private key
-        echo "${{ inputs.private_key }}" > ~/.ssh/backup_key
+        printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/backup_key
         chmod 600 ~/.ssh/backup_key
 
-        # Add SSH config
-        cat > ~/.ssh/config << EOF
-        Host backup_target
-          HostName ${{ inputs.host }}
-          Port ${{ inputs.port }}
-          User ${{ inputs.username }}
-          IdentityFile ~/.ssh/backup_key
-          ${{ inputs.ssh_options }}
-        EOF
-
+        # Add SSH config — use grouped echo to avoid heredoc indentation issues
+        {
+          echo "Host backup_target"
+          echo "  HostName $INPUT_HOST"
+          echo "  Port $INPUT_PORT"
+          echo "  User $INPUT_USER"
+          echo "  IdentityFile ~/.ssh/backup_key"
+          echo "  StrictHostKeyChecking no"
+          echo "  UserKnownHostsFile /dev/null"
+          echo "  ConnectTimeout 30"
+        } >> ~/.ssh/config
         chmod 600 ~/.ssh/config
 
         echo "SSH configuration completed"
