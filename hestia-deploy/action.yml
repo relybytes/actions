@@ -74,33 +74,38 @@ runs:
   steps:
     - name: Validate inputs
       shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_SOURCE: ${{ inputs.source }}
       run: |
         echo "::group::Validating inputs"
 
-        # Validate required inputs
-        if [[ -z "${{ inputs.host }}" ]]; then
+        if [[ -z "$INPUT_HOST" ]]; then
           echo "::error::Host is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.username }}" ]]; then
+        if [[ -z "$INPUT_USERNAME" ]]; then
           echo "::error::Username is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.private_key }}" ]]; then
+        if [[ -z "$INPUT_PRIVATE_KEY" ]]; then
           echo "::error::Private key is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.target }}" ]]; then
+        if [[ -z "$INPUT_TARGET" ]]; then
           echo "::error::Target directory is required"
           exit 1
         fi
 
-        # Validate source directory exists
-        if [[ ! -d "${{ inputs.source }}" ]]; then
-          echo "::error::Source directory '${{ inputs.source }}' does not exist"
+        if [[ ! -d "$INPUT_SOURCE" ]]; then
+          echo "::error::Source directory '$INPUT_SOURCE' does not exist"
           exit 1
         fi
 
@@ -109,27 +114,30 @@ runs:
 
     - name: Setup SSH connection
       shell: bash
+      env:
+        PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_USER: ${{ inputs.username }}
       run: |
         echo "::group::Setting up SSH connection"
 
-        # Create SSH directory
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
 
-        # Write private key
-        echo "${{ inputs.private_key }}" > ~/.ssh/deploy_key
+        printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/deploy_key
         chmod 600 ~/.ssh/deploy_key
 
-        # Add SSH config
-        cat > ~/.ssh/config << EOF
-        Host deploy_target
-          HostName ${{ inputs.host }}
-          Port ${{ inputs.port }}
-          User ${{ inputs.username }}
-          IdentityFile ~/.ssh/deploy_key
-          ${{ inputs.ssh_options }}
-        EOF
-
+        {
+          echo "Host deploy_target"
+          echo "  HostName $INPUT_HOST"
+          echo "  Port $INPUT_PORT"
+          echo "  User $INPUT_USER"
+          echo "  IdentityFile ~/.ssh/deploy_key"
+          echo "  StrictHostKeyChecking no"
+          echo "  UserKnownHostsFile /dev/null"
+          echo "  ConnectTimeout 30"
+        } >> ~/.ssh/config
         chmod 600 ~/.ssh/config
 
         echo "SSH configuration completed"
