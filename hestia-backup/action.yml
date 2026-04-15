@@ -1,5 +1,5 @@
 name: "HestiaCP Backup"
-description: "Create remote backups of HestiaCP directories with compression and retention"
+description: "Create backups using HestiaCP native commands (v-backup-user)"
 author: "RelyBytes"
 branding:
   icon: "archive"
@@ -14,106 +14,91 @@ inputs:
     required: false
     default: "22"
   username:
-    description: "SSH username"
+    description: "SSH username (must have permission to run Hestia commands)"
     required: true
   private_key:
     description: "SSH private key"
     required: true
-  source_directory:
-    description: "Source directory to backup"
+  hestia_user:
+    description: "HestiaCP user to backup"
     required: true
-  backup_directory:
-    description: "Remote backup directory"
-    required: false
-    default: "~/backups"
-  backup_name:
-    description: "Custom backup name (without extension)"
-    required: false
-    default: ""
-  compression:
-    description: "Compression type (tar.gz, tar.bz2, zip, none)"
-    required: false
-    default: "tar.gz"
   retention:
-    description: "Number of backups to keep"
+    description: "Number of backups to keep (older ones will be deleted)"
     required: false
     default: "7"
-  exclude_patterns:
-    description: "Exclude patterns (comma separated)"
+  notify:
+    description: "Send HestiaCP email notification after backup (yes/no)"
     required: false
-    default: "*.log,tmp/*,cache/*,node_modules/*"
-  pre_backup_command:
-    description: "Command to run before backup"
-    required: false
-    default: ""
-  post_backup_command:
-    description: "Command to run after backup"
-    required: false
-    default: ""
-  ssh_options:
-    description: "Additional SSH options"
-    required: false
-    default: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    default: "no"
 
 outputs:
-  backup_path:
-    description: "Full path to created backup"
-    value: ${{ steps.summary.outputs.backup_path }}
   backup_name:
-    description: "Name of backup file"
-    value: ${{ steps.summary.outputs.backup_name }}
+    description: "Name of the created backup file"
+    value: ${{ steps.backup.outputs.backup_name }}
+  backup_path:
+    description: "Full path to the created backup file"
+    value: ${{ steps.backup.outputs.backup_path }}
   backup_size:
     description: "Size of backup in bytes"
-    value: ${{ steps.summary.outputs.backup_size }}
+    value: ${{ steps.backup.outputs.backup_size }}
   backup_duration:
     description: "Backup duration in seconds"
     value: ${{ steps.backup.outputs.backup_duration }}
   backups_removed:
     description: "Number of old backups removed"
-    value: ${{ steps.summary.outputs.backups_removed }}
+    value: ${{ steps.retention.outputs.backups_removed }}
 
 runs:
   using: "composite"
   steps:
     - name: Validate inputs
       shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_HESTIA_USER: ${{ inputs.hestia_user }}
+        INPUT_RETENTION: ${{ inputs.retention }}
       run: |
         echo "::group::Validating inputs"
 
-        # Check required inputs
-        if [[ -z "${{ inputs.host }}" ]]; then
-          echo "::error::Host is required"
+        if [[ -z "$INPUT_HOST" ]]; then
+          echo "::error::host is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.username }}" ]]; then
-          echo "::error::Username is required"
+        if [[ -z "$INPUT_USERNAME" ]]; then
+          echo "::error::username is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.private_key }}" ]]; then
-          echo "::error::Private key is required"
+        if [[ -z "$INPUT_PRIVATE_KEY" ]]; then
+          echo "::error::private_key is required"
           exit 1
         fi
 
-        if [[ -z "${{ inputs.source_directory }}" ]]; then
-          echo "::error::Source directory is required"
+        if [[ -z "$INPUT_HESTIA_USER" ]]; then
+          echo "::error::hestia_user is required"
           exit 1
         fi
 
-        # Validate compression type
-        if [[ ! "${{ inputs.compression }}" =~ ^(tar\.gz|tar\.bz2|zip|none)$ ]]; then
-          echo "::error::Invalid compression type. Must be one of: tar.gz, tar.bz2, zip, none"
+        if [[ ! "$INPUT_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+          echo "::error::Invalid host format"
           exit 1
         fi
 
-        # Validate retention
-        if ! [[ "${{ inputs.retention }}" =~ ^[0-9]+$ ]] || [[ "${{ inputs.retention }}" -lt 1 ]]; then
-          echo "::error::Retention must be a positive integer"
+        if ! [[ "$INPUT_PORT" =~ ^[0-9]+$ ]] || [[ "$INPUT_PORT" -lt 1 ]] || [[ "$INPUT_PORT" -gt 65535 ]]; then
+          echo "::error::Port must be between 1 and 65535"
           exit 1
         fi
 
-        echo "Inputs validated successfully"
+        if ! [[ "$INPUT_RETENTION" =~ ^[0-9]+$ ]] || [[ "$INPUT_RETENTION" -lt 1 ]]; then
+          echo "::error::retention must be a positive integer"
+          exit 1
+        fi
+
+        echo "Inputs validated"
         echo "::endgroup::"
 
     - name: Setup SSH connection
@@ -126,15 +111,12 @@ runs:
       run: |
         echo "::group::Setting up SSH connection"
 
-        # Create SSH directory
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
 
-        # Write private key
         printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/backup_key
         chmod 600 ~/.ssh/backup_key
 
-        # Add SSH config — use grouped echo to avoid heredoc indentation issues
         {
           echo "Host backup_target"
           echo "  HostName $INPUT_HOST"
@@ -163,316 +145,113 @@ runs:
         echo "SSH connection verified"
         echo "::endgroup::"
 
-    - name: Verify source directory
-      shell: bash
-      run: |
-        echo "::group::Verifying source directory"
-
-        SOURCE_DIR="${{ inputs.source_directory }}"
-
-        # Check if source directory exists on remote server
-        if ! ssh backup_target "[[ -d '$SOURCE_DIR' ]]"; then
-          echo "::error::Source directory '$SOURCE_DIR' does not exist on remote server"
-          exit 1
-        fi
-
-        # Check if directory has content
-        CONTENT_EXISTS=$(ssh backup_target "
-          if [[ \"\$(ls -A '$SOURCE_DIR' 2>/dev/null)\" ]]; then
-            echo 'true'
-          else
-            echo 'false'
-          fi
-        ")
-
-        if [[ "$CONTENT_EXISTS" != "true" ]]; then
-          echo "::warning::Source directory is empty"
-        fi
-
-        # Get directory size
-        DIR_SIZE=$(ssh backup_target "du -sb '$SOURCE_DIR' 2>/dev/null | cut -f1" || echo "0")
-        echo "Source directory size: $DIR_SIZE bytes"
-
-        echo "Source directory verified"
-        echo "::endgroup::"
-
-    - name: Setup backup directory
-      shell: bash
-      run: |
-        echo "::group::Setting up backup directory"
-
-        BACKUP_DIR="${{ inputs.backup_directory }}"
-
-        # Create backup directory
-        ssh backup_target "
-          mkdir -p '$BACKUP_DIR'
-          echo 'Backup directory ready: $BACKUP_DIR'
-        "
-
-        echo "Backup directory setup completed"
-        echo "::endgroup::"
-
-    - name: Generate backup name
-      shell: bash
-      id: naming
-      run: |
-        echo "::group::Generating backup name"
-
-        TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-        SOURCE_BASE=$(basename "${{ inputs.source_directory }}")
-
-        if [[ -n "${{ inputs.backup_name }}" ]]; then
-          BACKUP_NAME="${{ inputs.backup_name }}_${TIMESTAMP}"
-        else
-          BACKUP_NAME="${SOURCE_BASE}_${TIMESTAMP}"
-        fi
-
-        # Add compression extension
-        case "${{ inputs.compression }}" in
-          "tar.gz")
-            BACKUP_FILE="${BACKUP_NAME}.tar.gz"
-            ;;
-          "tar.bz2")
-            BACKUP_FILE="${BACKUP_NAME}.tar.bz2"
-            ;;
-          "zip")
-            BACKUP_FILE="${BACKUP_NAME}.zip"
-            ;;
-          "none")
-            BACKUP_FILE="${BACKUP_NAME}"
-            ;;
-        esac
-
-        BACKUP_PATH="${{ inputs.backup_directory }}/$BACKUP_FILE"
-
-        echo "backup_name=$BACKUP_NAME" >> $GITHUB_OUTPUT
-        echo "backup_file=$BACKUP_FILE" >> $GITHUB_OUTPUT
-        echo "backup_path=$BACKUP_PATH" >> $GITHUB_OUTPUT
-
-        echo "Backup name: $BACKUP_NAME"
-        echo "Backup file: $BACKUP_FILE"
-        echo "Backup path: $BACKUP_PATH"
-
-        echo "::endgroup::"
-
-    - name: Run pre-backup command
-      shell: bash
-      if: inputs.pre_backup_command != ''
-      run: |
-        echo "::group::Running pre-backup command"
-
-        PRE_COMMAND="${{ inputs.pre_backup_command }}"
-        echo "Executing: $PRE_COMMAND"
-
-        if ! ssh backup_target "$PRE_COMMAND"; then
-          echo "::error::Pre-backup command failed"
-          exit 1
-        fi
-
-        echo "Pre-backup command completed"
-        echo "::endgroup::"
-
     - name: Create backup
-      shell: bash
       id: backup
+      shell: bash
+      env:
+        INPUT_HESTIA_USER: ${{ inputs.hestia_user }}
+        INPUT_NOTIFY: ${{ inputs.notify }}
       run: |
-        echo "::group::Creating backup"
-
-        SOURCE_DIR="${{ inputs.source_directory }}"
-        BACKUP_PATH="${{ steps.naming.outputs.backup_path }}"
-        COMPRESSION="${{ inputs.compression }}"
-        EXCLUDE_PATTERNS="${{ inputs.exclude_patterns }}"
+        echo "::group::Creating HestiaCP backup"
 
         BACKUP_START=$(date +%s)
 
-        # Prepare exclude arguments
-        EXCLUDE_ARGS=""
-        if [[ -n "$EXCLUDE_PATTERNS" ]]; then
-          IFS=',' read -ra PATTERNS <<< "$EXCLUDE_PATTERNS"
-          for pattern in "${PATTERNS[@]}"; do
-            pattern=$(echo "$pattern" | xargs)  # trim whitespace
-            if [[ -n "$pattern" ]]; then
-              case "$COMPRESSION" in
-                "tar.gz"|"tar.bz2")
-                  EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude='$pattern'"
-                  ;;
-                "zip")
-                  EXCLUDE_ARGS="$EXCLUDE_ARGS -x '$pattern'"
-                  ;;
-              esac
-            fi
-          done
+        NOTIFY_FLAG=""
+        if [[ "$INPUT_NOTIFY" == "yes" ]]; then
+          NOTIFY_FLAG="yes"
         fi
 
-        # Create backup based on compression type
-        case "$COMPRESSION" in
-          "tar.gz")
-            BACKUP_CMD="tar -czf '$BACKUP_PATH' -C '$(dirname "$SOURCE_DIR")' '$(basename "$SOURCE_DIR")' $EXCLUDE_ARGS"
-            ;;
-          "tar.bz2")
-            BACKUP_CMD="tar -cjf '$BACKUP_PATH' -C '$(dirname "$SOURCE_DIR")' '$(basename "$SOURCE_DIR")' $EXCLUDE_ARGS"
-            ;;
-          "zip")
-            BACKUP_CMD="cd '$(dirname "$SOURCE_DIR")' && zip -r '$BACKUP_PATH' '$(basename "$SOURCE_DIR")' $EXCLUDE_ARGS"
-            ;;
-          "none")
-            BACKUP_CMD="cp -r '$SOURCE_DIR' '$BACKUP_PATH'"
-            ;;
-        esac
+        echo "Running v-backup-user for user: $INPUT_HESTIA_USER"
 
-        echo "Backup command: $BACKUP_CMD"
-
-        # Execute backup
-        if ! ssh backup_target "$BACKUP_CMD"; then
-          echo "::error::Backup creation failed"
+        if ! ssh backup_target "v-backup-user '$INPUT_HESTIA_USER' $NOTIFY_FLAG"; then
+          echo "::error::v-backup-user failed"
           exit 1
         fi
 
         BACKUP_END=$(date +%s)
         BACKUP_DURATION=$((BACKUP_END - BACKUP_START))
 
-        # Get backup size
-        BACKUP_SIZE=$(ssh backup_target "stat -f%z '$BACKUP_PATH' 2>/dev/null || stat -c%s '$BACKUP_PATH' 2>/dev/null || echo '0'")
+        # Retrieve the latest backup created for this user
+        BACKUP_NAME=$(ssh backup_target "ls -t /backup/${INPUT_HESTIA_USER}.*.tar 2>/dev/null | head -1 | xargs basename 2>/dev/null" || echo "")
+        if [[ -z "$BACKUP_NAME" ]]; then
+          echo "::error::Could not find created backup file in /backup/"
+          exit 1
+        fi
 
-        echo "backup_duration=$BACKUP_DURATION" >> $GITHUB_OUTPUT
-        echo "backup_size=$BACKUP_SIZE" >> $GITHUB_OUTPUT
+        BACKUP_PATH="/backup/$BACKUP_NAME"
+        BACKUP_SIZE=$(ssh backup_target "stat -c%s '$BACKUP_PATH' 2>/dev/null || echo '0'")
 
-        echo "Backup created successfully!"
-        echo "Duration: ${BACKUP_DURATION}s"
+        echo "backup_name=$BACKUP_NAME" >> "$GITHUB_OUTPUT"
+        echo "backup_path=$BACKUP_PATH" >> "$GITHUB_OUTPUT"
+        echo "backup_size=$BACKUP_SIZE" >> "$GITHUB_OUTPUT"
+        echo "backup_duration=$BACKUP_DURATION" >> "$GITHUB_OUTPUT"
+
+        echo "Backup created: $BACKUP_NAME"
         echo "Size: $BACKUP_SIZE bytes"
+        echo "Duration: ${BACKUP_DURATION}s"
         echo "::endgroup::"
 
-    - name: Verify backup
+    - name: Apply retention policy
+      id: retention
       shell: bash
+      env:
+        INPUT_HESTIA_USER: ${{ inputs.hestia_user }}
+        INPUT_RETENTION: ${{ inputs.retention }}
       run: |
-        echo "::group::Verifying backup"
+        echo "::group::Applying retention policy (keep $INPUT_RETENTION backups)"
 
-        BACKUP_PATH="${{ steps.naming.outputs.backup_path }}"
+        # List all backups for the user, sorted newest first (plain text: one filename per line)
+        BACKUP_LIST=$(ssh backup_target "v-list-user-backups '$INPUT_HESTIA_USER' plain 2>/dev/null | awk '{print \$1}' | sort -r")
 
-        # Check if backup file exists
-        if ! ssh backup_target "[[ -f '$BACKUP_PATH' ]]"; then
-          echo "::error::Backup file not found after creation"
-          exit 1
-        fi
+        TOTAL=$(echo "$BACKUP_LIST" | grep -c '.' || echo "0")
+        echo "Total backups found: $TOTAL"
 
-        # Test backup integrity (for compressed files)
-        COMPRESSION="${{ inputs.compression }}"
-        case "$COMPRESSION" in
-          "tar.gz")
-            if ! ssh backup_target "tar -tzf '$BACKUP_PATH' >/dev/null 2>&1"; then
-              echo "::error::Backup integrity check failed"
-              exit 1
+        REMOVED=0
+        LINE=0
+        while IFS= read -r BACKUP_FILE; do
+          [[ -z "$BACKUP_FILE" ]] && continue
+          LINE=$((LINE + 1))
+          if [[ "$LINE" -gt "$INPUT_RETENTION" ]]; then
+            echo "Deleting old backup: $BACKUP_FILE"
+            if ssh backup_target "v-delete-user-backup '$INPUT_HESTIA_USER' '$BACKUP_FILE'"; then
+              REMOVED=$((REMOVED + 1))
+            else
+              echo "::warning::Failed to delete backup: $BACKUP_FILE"
             fi
-            ;;
-          "tar.bz2")
-            if ! ssh backup_target "tar -tjf '$BACKUP_PATH' >/dev/null 2>&1"; then
-              echo "::error::Backup integrity check failed"
-              exit 1
-            fi
-            ;;
-          "zip")
-            if ! ssh backup_target "unzip -t '$BACKUP_PATH' >/dev/null 2>&1"; then
-              echo "::error::Backup integrity check failed"
-              exit 1
-            fi
-            ;;
-        esac
+          fi
+        done <<< "$BACKUP_LIST"
 
-        echo "Backup verification passed"
-        echo "::endgroup::"
-
-    - name: Clean up old backups
-      shell: bash
-      id: cleanup
-      run: |
-        echo "::group::Cleaning up old backups"
-
-        BACKUP_DIR="${{ inputs.backup_directory }}"
-        RETENTION="${{ inputs.retention }}"
-        CURRENT_BACKUP="${{ steps.naming.outputs.backup_file }}"
-
-        # List all backups and remove old ones
-        BACKUPS_REMOVED=$(ssh backup_target "
-          cd '$BACKUP_DIR'
-          
-          # Find backup files (excluding current backup)
-          find . -maxdepth 1 -type f ! -name '$CURRENT_BACKUP' -printf '%T@ %p\n' | \
-          sort -nr | \
-          tail -n +$((RETENTION + 1)) | \
-          cut -d' ' -f2- | \
-          while read -r file; do
-            if [[ -f \"\$file\" ]]; then
-              rm -f \"\$file\"
-              echo \"Removed: \$file\"
-            fi
-          done
-        ")
-
-        # Count removed backups
-        REMOVED_COUNT=$(echo "$BACKUPS_REMOVED" | grep -c "Removed:" || echo "0")
-
-        echo "backups_removed=$REMOVED_COUNT" >> $GITHUB_OUTPUT
-
-        echo "Cleanup completed"
-        echo "Backups removed: $REMOVED_COUNT"
-        if [[ $REMOVED_COUNT -gt 0 ]]; then
-          echo "$BACKUPS_REMOVED"
-        fi
-
-        echo "::endgroup::"
-
-    - name: Run post-backup command
-      shell: bash
-      if: inputs.post_backup_command != ''
-      run: |
-        echo "::group::Running post-backup command"
-
-        POST_COMMAND="${{ inputs.post_backup_command }}"
-        BACKUP_PATH="${{ steps.naming.outputs.backup_path }}"
-
-        # Replace placeholder in command
-        POST_COMMAND=$(echo "$POST_COMMAND" | sed "s/{BACKUP_PATH}/$BACKUP_PATH/g")
-
-        echo "Executing: $POST_COMMAND"
-
-        if ! ssh backup_target "$POST_COMMAND"; then
-          echo "::error::Post-backup command failed"
-          exit 1
-        fi
-
-        echo "Post-backup command completed"
+        echo "backups_removed=$REMOVED" >> "$GITHUB_OUTPUT"
+        echo "Retention applied — removed $REMOVED old backup(s)"
         echo "::endgroup::"
 
     - name: Output summary
-      id: summary
       shell: bash
+      env:
+        INPUT_HESTIA_USER: ${{ inputs.hestia_user }}
       run: |
-        echo "::group::Backup Summary"
+        echo "::group::Backup summary"
 
-        BACKUP_PATH="${{ steps.naming.outputs.backup_path }}"
-        BACKUP_NAME="${{ steps.naming.outputs.backup_name }}"
+        BACKUP_NAME="${{ steps.backup.outputs.backup_name }}"
         BACKUP_SIZE="${{ steps.backup.outputs.backup_size }}"
         BACKUP_DURATION="${{ steps.backup.outputs.backup_duration }}"
-        BACKUPS_REMOVED="${{ steps.cleanup.outputs.backups_removed }}"
+        BACKUPS_REMOVED="${{ steps.retention.outputs.backups_removed }}"
 
-        echo "backup_path=$BACKUP_PATH" >> $GITHUB_OUTPUT
-        echo "backup_name=$BACKUP_NAME" >> $GITHUB_OUTPUT
-        echo "backup_size=$BACKUP_SIZE" >> $GITHUB_OUTPUT
-        echo "backups_removed=$BACKUPS_REMOVED" >> $GITHUB_OUTPUT
-
-        echo "Backup completed successfully!"
-        echo "Name: $BACKUP_NAME"
-        echo "Path: $BACKUP_PATH"
-        echo "Size: $BACKUP_SIZE bytes"
+        echo "HestiaCP backup completed successfully!"
+        echo "User:     $INPUT_HESTIA_USER"
+        echo "Backup:   $BACKUP_NAME"
+        echo "Size:     $BACKUP_SIZE bytes"
         echo "Duration: ${BACKUP_DURATION}s"
-        echo "Old backups removed: $BACKUPS_REMOVED"
+        echo "Removed:  $BACKUPS_REMOVED old backup(s)"
 
-        # Set workflow summary
-        echo "## Backup Summary" >> $GITHUB_STEP_SUMMARY
-        echo "**Name:** $BACKUP_NAME" >> $GITHUB_STEP_SUMMARY
-        echo "**Size:** $BACKUP_SIZE bytes" >> $GITHUB_STEP_SUMMARY
-        echo "**Duration:** ${BACKUP_DURATION}s" >> $GITHUB_STEP_SUMMARY
-        echo "**Old backups removed:** $BACKUPS_REMOVED" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "## HestiaCP Backup Summary"
+          echo "**User:** $INPUT_HESTIA_USER"
+          echo "**Backup:** $BACKUP_NAME"
+          echo "**Size:** $BACKUP_SIZE bytes"
+          echo "**Duration:** ${BACKUP_DURATION}s"
+          echo "**Old backups removed:** $BACKUPS_REMOVED"
+        } >> "$GITHUB_STEP_SUMMARY"
 
         echo "::endgroup::"
 
@@ -481,10 +260,6 @@ runs:
       if: always()
       run: |
         echo "::group::Cleanup SSH"
-
-        # Remove SSH key
         rm -f ~/.ssh/backup_key
-        rm -f ~/.ssh/config
-
         echo "SSH cleanup completed"
         echo "::endgroup::"
