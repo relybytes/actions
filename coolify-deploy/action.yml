@@ -1,0 +1,291 @@
+name: "Coolify Deploy"
+description: "Trigger a Coolify deployment via API token or webhook with optional wait-for-completion"
+author: "RelyBytes"
+branding:
+  icon: "upload-cloud"
+  color: "blue"
+
+inputs:
+  coolify_url:
+    description: "Base URL of the Coolify instance (e.g. https://hostingcloud.relybytes.com)"
+    required: false
+    default: ""
+  api_token:
+    description: "Coolify API token (Bearer). Required when using uuid mode."
+    required: false
+    default: ""
+  uuid:
+    description: "UUID of the Coolify application/service/resource to deploy"
+    required: false
+    default: ""
+  webhook_url:
+    description: "Full Coolify deploy webhook URL (alternative to api_token + uuid)"
+    required: false
+    default: ""
+  webhook_secret:
+    description: "Optional bearer token for the deploy webhook"
+    required: false
+    default: ""
+  force:
+    description: "Force rebuild (no cache)"
+    required: false
+    default: "false"
+  tag:
+    description: "Optional Git tag to deploy"
+    required: false
+    default: ""
+  pr_number:
+    description: "Optional pull request number for preview deployments"
+    required: false
+    default: ""
+  wait:
+    description: "Wait for the deployment to finish"
+    required: false
+    default: "true"
+  wait_timeout:
+    description: "Wait timeout in seconds"
+    required: false
+    default: "600"
+  poll_interval:
+    description: "Polling interval in seconds while waiting"
+    required: false
+    default: "10"
+  fail_on_error:
+    description: "Fail the workflow if the deployment ends in failed/cancelled state"
+    required: false
+    default: "true"
+
+outputs:
+  deployment_uuid:
+    description: "UUID of the triggered deployment"
+    value: ${{ steps.trigger.outputs.deployment_uuid }}
+  deployment_status:
+    description: "Final deployment status (finished|failed|cancelled|in_progress|unknown)"
+    value: ${{ steps.wait.outputs.deployment_status }}
+  deployment_time:
+    description: "UTC timestamp of the trigger"
+    value: ${{ steps.trigger.outputs.deployment_time }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        COOLIFY_URL: ${{ inputs.coolify_url }}
+        API_TOKEN: ${{ inputs.api_token }}
+        UUID: ${{ inputs.uuid }}
+        WEBHOOK_URL: ${{ inputs.webhook_url }}
+        WAIT: ${{ inputs.wait }}
+        WAIT_TIMEOUT: ${{ inputs.wait_timeout }}
+        POLL_INTERVAL: ${{ inputs.poll_interval }}
+      run: |
+        echo "::group::Validating inputs"
+
+        # Mode detection: webhook OR api
+        if [[ -z "$WEBHOOK_URL" ]]; then
+          if [[ -z "$COOLIFY_URL" ]] || [[ -z "$API_TOKEN" ]] || [[ -z "$UUID" ]]; then
+            echo "::error::Provide either webhook_url, or coolify_url + api_token + uuid"
+            exit 1
+          fi
+          if [[ ! "$COOLIFY_URL" =~ ^https?:// ]]; then
+            echo "::error::coolify_url must start with http:// or https://"
+            exit 1
+          fi
+        else
+          if [[ ! "$WEBHOOK_URL" =~ ^https?:// ]]; then
+            echo "::error::webhook_url must start with http:// or https://"
+            exit 1
+          fi
+          if [[ "$WAIT" == "true" ]] && { [[ -z "$COOLIFY_URL" ]] || [[ -z "$API_TOKEN" ]]; }; then
+            echo "::warning::wait=true with webhook_url requires coolify_url + api_token to poll status; disabling wait"
+          fi
+        fi
+
+        if ! [[ "$WAIT_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$WAIT_TIMEOUT" -lt 1 ]]; then
+          echo "::error::wait_timeout must be a positive integer"
+          exit 1
+        fi
+
+        if ! [[ "$POLL_INTERVAL" =~ ^[0-9]+$ ]] || [[ "$POLL_INTERVAL" -lt 1 ]]; then
+          echo "::error::poll_interval must be a positive integer"
+          exit 1
+        fi
+
+        echo "Inputs validated successfully"
+        echo "::endgroup::"
+
+    - name: Trigger deployment
+      id: trigger
+      shell: bash
+      env:
+        COOLIFY_URL: ${{ inputs.coolify_url }}
+        API_TOKEN: ${{ inputs.api_token }}
+        UUID: ${{ inputs.uuid }}
+        WEBHOOK_URL: ${{ inputs.webhook_url }}
+        WEBHOOK_SECRET: ${{ inputs.webhook_secret }}
+        FORCE: ${{ inputs.force }}
+        TAG: ${{ inputs.tag }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        echo "::group::Triggering Coolify deployment"
+
+        RESPONSE_FILE="$(mktemp)"
+        HTTP_CODE=""
+
+        if [[ -n "$WEBHOOK_URL" ]]; then
+          # Webhook mode: append optional query params
+          URL="$WEBHOOK_URL"
+          SEP="?"
+          [[ "$URL" == *"?"* ]] && SEP="&"
+          if [[ -n "$TAG" ]]; then
+            URL="${URL}${SEP}tag=$(printf '%s' "$TAG" | jq -sRr @uri)"
+            SEP="&"
+          fi
+          if [[ -n "$PR_NUMBER" ]]; then
+            URL="${URL}${SEP}pr=${PR_NUMBER}"
+            SEP="&"
+          fi
+          if [[ "$FORCE" == "true" ]]; then
+            URL="${URL}${SEP}force=true"
+          fi
+
+          AUTH_OPTS=()
+          [[ -n "$WEBHOOK_SECRET" ]] && AUTH_OPTS+=("-H" "Authorization: Bearer $WEBHOOK_SECRET")
+
+          echo "POST $URL"
+          HTTP_CODE=$(curl -sS -X GET \
+            "${AUTH_OPTS[@]}" \
+            -o "$RESPONSE_FILE" \
+            -w "%{http_code}" \
+            "$URL" || echo "000")
+        else
+          # API mode: GET /api/v1/deploy?uuid=...&force=...
+          BASE="${COOLIFY_URL%/}"
+          URL="${BASE}/api/v1/deploy?uuid=${UUID}"
+          [[ "$FORCE" == "true" ]] && URL="${URL}&force=true"
+          [[ -n "$TAG" ]] && URL="${URL}&tag=$(printf '%s' "$TAG" | jq -sRr @uri)"
+          [[ -n "$PR_NUMBER" ]] && URL="${URL}&pr=${PR_NUMBER}"
+
+          echo "GET $URL"
+          HTTP_CODE=$(curl -sS \
+            -H "Authorization: Bearer $API_TOKEN" \
+            -H "Accept: application/json" \
+            -o "$RESPONSE_FILE" \
+            -w "%{http_code}" \
+            "$URL" || echo "000")
+        fi
+
+        BODY="$(cat "$RESPONSE_FILE")"
+        echo "HTTP $HTTP_CODE"
+        echo "Response: $BODY"
+
+        if [[ ! "$HTTP_CODE" =~ ^2 ]]; then
+          echo "::error::Coolify returned HTTP $HTTP_CODE"
+          rm -f "$RESPONSE_FILE"
+          exit 1
+        fi
+
+        # Try to extract a deployment UUID from the response (best-effort)
+        DEPLOY_UUID=""
+        if command -v jq >/dev/null 2>&1 && [[ -n "$BODY" ]]; then
+          DEPLOY_UUID="$(echo "$BODY" | jq -r '
+            ( .deployments[0].deployment_uuid
+              // .deployment_uuid
+              // .uuid
+              // empty )
+          ' 2>/dev/null || true)"
+        fi
+
+        echo "deployment_uuid=$DEPLOY_UUID" >> "$GITHUB_OUTPUT"
+        echo "deployment_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+
+        if [[ -n "$DEPLOY_UUID" ]]; then
+          echo "Deployment queued: $DEPLOY_UUID"
+        else
+          echo "Deployment triggered (no deployment UUID returned)"
+        fi
+
+        rm -f "$RESPONSE_FILE"
+        echo "::endgroup::"
+
+    - name: Wait for completion
+      id: wait
+      shell: bash
+      if: inputs.wait == 'true'
+      env:
+        COOLIFY_URL: ${{ inputs.coolify_url }}
+        API_TOKEN: ${{ inputs.api_token }}
+        DEPLOY_UUID: ${{ steps.trigger.outputs.deployment_uuid }}
+        WAIT_TIMEOUT: ${{ inputs.wait_timeout }}
+        POLL_INTERVAL: ${{ inputs.poll_interval }}
+        FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
+      run: |
+        echo "::group::Waiting for deployment to finish"
+
+        if [[ -z "$DEPLOY_UUID" ]] || [[ -z "$COOLIFY_URL" ]] || [[ -z "$API_TOKEN" ]]; then
+          echo "Cannot poll deployment status (missing UUID or API credentials), skipping wait"
+          echo "deployment_status=unknown" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+          exit 0
+        fi
+
+        BASE="${COOLIFY_URL%/}"
+        STATUS_URL="${BASE}/api/v1/deployments/${DEPLOY_UUID}"
+
+        START=$(date +%s)
+        STATUS="unknown"
+        while true; do
+          NOW=$(date +%s)
+          ELAPSED=$((NOW - START))
+          if [[ "$ELAPSED" -ge "$WAIT_TIMEOUT" ]]; then
+            echo "::error::Timed out after ${WAIT_TIMEOUT}s waiting for deployment"
+            STATUS="timeout"
+            break
+          fi
+
+          RAW=$(curl -sS \
+            -H "Authorization: Bearer $API_TOKEN" \
+            -H "Accept: application/json" \
+            "$STATUS_URL" || echo "")
+
+          if [[ -n "$RAW" ]] && command -v jq >/dev/null 2>&1; then
+            STATUS="$(echo "$RAW" | jq -r '.status // empty' 2>/dev/null || echo "")"
+          fi
+          [[ -z "$STATUS" ]] && STATUS="unknown"
+
+          echo "[$(date +%H:%M:%S)] status=$STATUS (elapsed ${ELAPSED}s)"
+
+          case "$STATUS" in
+            finished|success|succeeded)
+              STATUS="finished"
+              break
+              ;;
+            failed|error|cancelled|canceled)
+              break
+              ;;
+          esac
+
+          sleep "$POLL_INTERVAL"
+        done
+
+        echo "deployment_status=$STATUS" >> "$GITHUB_OUTPUT"
+
+        case "$STATUS" in
+          finished)
+            echo "Deployment finished successfully"
+            ;;
+          failed|error|cancelled|canceled|timeout)
+            if [[ "$FAIL_ON_ERROR" == "true" ]]; then
+              echo "::error::Deployment ended with status: $STATUS"
+              exit 1
+            else
+              echo "::warning::Deployment ended with status: $STATUS (fail_on_error disabled)"
+            fi
+            ;;
+          *)
+            echo "::warning::Deployment ended in unexpected state: $STATUS"
+            ;;
+        esac
+
+        echo "::endgroup::"

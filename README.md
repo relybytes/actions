@@ -85,6 +85,89 @@ Create remote backups of HestiaCP directories with compression and retention.
     source_directory: /home/user/web/site.com/public_html/
 ```
 
+### [k8s-image-build](./k8s-image-build/)
+
+Build Docker images and push them to a container registry, ready for Kubernetes.
+
+- **Multi-platform builds** with Docker Buildx
+- **Multi-tag publishing** with primary and additional tags
+- **Build args, labels and target stage** support
+- **Image digest output** for downstream pinning
+
+```yaml
+- uses: relybytes/actions/k8s-image-build@v1
+  with:
+    registry: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
+    image_name: myorg/api
+    image_tag: ${{ github.sha }}
+```
+
+### [build-push-registry](./build-push-registry/)
+
+Build a Docker image and push it to **any container registry** as `{image}-{suffix}:YYYY-MM-DD.shortsha`. Defaults to GHCR + the current repo when no credentials are passed.
+
+- **Generic registry support**: ghcr.io, Docker Hub, private registries — credentials and image name are all overridable
+- **Standardized naming**: environment suffix on the image repo, UTC date + short SHA on the tag
+- **Branch-aware suffix**: `prod` on main, `dev` on develop, `pr-N` on PRs, etc. (overridable)
+- **Per-environment `:latest`** auto-published on main/master
+- **Multi-platform builds** with Docker Buildx and auto OCI labels
+
+```yaml
+# Zero-config: pushes to ghcr.io/<owner>/<repo>-{suffix}
+- uses: relybytes/actions/build-push-registry@v1
+```
+
+```yaml
+# Custom registry
+- uses: relybytes/actions/build-push-registry@v1
+  with:
+    registry: registry.example.com
+    username: ${{ secrets.REGISTRY_USER }}
+    password: ${{ secrets.REGISTRY_PASS }}
+    image_name: team/myapp
+```
+
+Push to `main` produces `ghcr.io/<owner>/<repo>-prod:2026-05-05.a464688` (+ `:latest`).
+
+### [k8s-deploy](./k8s-deploy/)
+
+Apply Kubernetes manifests to a cluster with namespace and rollout management.
+
+- **Kubeconfig from secret** (raw YAML or base64-encoded)
+- **Auto namespace creation** and image placeholder substitution
+- **Kustomize support** and `kubectl set image` updates
+- **Rollout wait** with configurable timeout
+- **Dry-run modes** (client/server) and prune support
+
+```yaml
+- uses: relybytes/actions/k8s-deploy@v1
+  with:
+    kubeconfig: ${{ secrets.KUBECONFIG }}
+    namespace: production
+    manifests: k8s/
+    image: ghcr.io/myorg/api:${{ github.sha }}
+    image_placeholder: __IMAGE__
+```
+
+### [coolify-deploy](./coolify-deploy/)
+
+Trigger a deployment on a Coolify instance via API token or webhook.
+
+- **API or webhook trigger** with the same interface
+- **Wait-for-completion** with configurable timeout and polling interval
+- **Force rebuild**, **tag** and **PR preview** support
+- **Strict failure handling** with optional warning-only mode
+
+```yaml
+- uses: relybytes/actions/coolify-deploy@v1
+  with:
+    coolify_url: https://hostingcloud.relybytes.com
+    api_token: ${{ secrets.COOLIFY_TOKEN }}
+    uuid: ${{ secrets.COOLIFY_APP_UUID }}
+```
+
 ## Quick Start
 
 ### 1. Setup SSH Keys
