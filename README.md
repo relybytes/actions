@@ -67,6 +67,28 @@ Verify HTTP endpoints are healthy after deployment.
     retries: "3"
 ```
 
+### [kubernetes-onvm-release](./kubernetes-onvm-release/)
+
+Deploy Kubernetes manifests to a remote server via SSH and kubectl.
+
+- **Manifest directory passed as an input** for flexible releases
+- **Optional registry secret refresh** before applying manifests
+- **Manifest image patching** with configurable pull policy
+- **Rollout restart and status checks** after deployment
+
+```yaml
+- uses: relybytes/actions/kubernetes-onvm-release@v1
+  with:
+    ssh_host: ${{ vars.SSH_HOST }}
+    ssh_user: ${{ vars.SSH_USER }}
+    ssh_password: ${{ secrets.SSH_PASSWORD }}
+    manifests_dir: k8s/prod
+    namespace: my-namespace
+    deployment_name: my-app
+    pod_label_selector: app=my-app
+    image_reference: ghcr.io/my-org/my-app:${{ github.sha }}
+```
+
 ### [hestia-backup](./hestia-backup/)
 
 Create remote backups of HestiaCP directories with compression and retention.

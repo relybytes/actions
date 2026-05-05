@@ -1,0 +1,236 @@
+name: "Kubernetes ONVM Release"
+description: "Deploy Kubernetes manifests to a remote server via SSH and kubectl"
+author: "RelyBytes"
+branding:
+  icon: "upload-cloud"
+  color: "blue"
+
+inputs:
+  ssh_host:
+    description: "SSH host address"
+    required: true
+  ssh_port:
+    description: "SSH port"
+    required: false
+    default: "22"
+  ssh_user:
+    description: "SSH username"
+    required: true
+  ssh_password:
+    description: "SSH password"
+    required: true
+  manifests_dir:
+    description: "Kubernetes manifests directory on the runner"
+    required: true
+  remote_dir:
+    description: "Temporary directory on the remote server"
+    required: false
+    default: "/tmp/k8s-release"
+  namespace:
+    description: "Kubernetes namespace"
+    required: true
+  deployment_name:
+    description: "Kubernetes deployment name"
+    required: true
+  pod_label_selector:
+    description: "Label selector used to inspect pods"
+    required: true
+  deployment_file:
+    description: "Deployment manifest file relative to the selected manifests directory"
+    required: false
+    default: "app/01-deployment.yaml"
+  image_reference:
+    description: "Full container image reference with tag"
+    required: true
+  image_pull_policy:
+    description: "Image pull policy to apply in the deployment manifest"
+    required: false
+    default: "Always"
+  create_registry_secret:
+    description: "Create or refresh the registry secret"
+    required: false
+    default: "true"
+  registry_secret_name:
+    description: "Registry secret name"
+    required: false
+    default: "registry-secret"
+  registry_server:
+    description: "Registry server hostname"
+    required: false
+    default: "ghcr.io"
+  registry_username:
+    description: "Registry username"
+    required: false
+    default: ""
+  registry_password:
+    description: "Registry password or token"
+    required: false
+    default: ""
+  registry_email:
+    description: "Registry email used for the secret"
+    required: false
+    default: "noreply@example.com"
+  restart_deployment:
+    description: "Restart the deployment after applying manifests"
+    required: false
+    default: "true"
+  wait_timeout:
+    description: "Rollout status timeout"
+    required: false
+    default: "120s"
+  cleanup_remote:
+    description: "Remove temporary files from the remote server"
+    required: false
+    default: "true"
+
+outputs:
+  manifests_dir:
+    description: "Manifest directory used on the runner"
+    value: ${{ inputs.manifests_dir }}
+  remote_workdir:
+    description: "Temporary directory used on the remote server"
+    value: ${{ inputs.remote_dir }}
+  deployment_time:
+    description: "Deployment timestamp"
+    value: ${{ steps.deploy.outputs.deployment_time }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_MANIFESTS_DIR: ${{ inputs.manifests_dir }}
+        INPUT_REMOTE_DIR: ${{ inputs.remote_dir }}
+        INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment_file }}
+      run: |
+        echo "::group::Validating inputs"
+
+        if [[ ! -d "$INPUT_MANIFESTS_DIR" ]]; then
+          echo "::error::Manifest directory does not exist: $INPUT_MANIFESTS_DIR"
+          exit 1
+        fi
+
+        if [[ ! -f "$INPUT_MANIFESTS_DIR/$INPUT_DEPLOYMENT_FILE" ]]; then
+          echo "::error::Deployment file does not exist: $INPUT_MANIFESTS_DIR/$INPUT_DEPLOYMENT_FILE"
+          exit 1
+        fi
+
+        echo "Inputs validated successfully"
+        echo "::endgroup::"
+
+    - name: Install sshpass
+      shell: bash
+      run: |
+        echo "::group::Installing sshpass"
+        if ! command -v sshpass >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+        fi
+        echo "sshpass ready"
+        echo "::endgroup::"
+
+    - name: Transfer manifests
+      shell: bash
+      env:
+        SSH_HOST: ${{ inputs.ssh_host }}
+        SSH_PORT: ${{ inputs.ssh_port }}
+        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_PASSWORD: ${{ inputs.ssh_password }}
+        MANIFESTS_DIR: ${{ inputs.manifests_dir }}
+        REMOTE_WORKDIR: ${{ inputs.remote_dir }}
+      run: |
+        echo "::group::Transferring manifests"
+
+        sshpass -p "$SSH_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "mkdir -p '$REMOTE_WORKDIR'"
+        sshpass -p "$SSH_PASSWORD" scp -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$MANIFESTS_DIR"/. "$SSH_USER@$SSH_HOST:$REMOTE_WORKDIR/"
+
+        echo "Manifests transferred to $REMOTE_WORKDIR"
+        echo "::endgroup::"
+
+    - name: Deploy release
+      id: deploy
+      shell: bash
+      env:
+        SSH_HOST: ${{ inputs.ssh_host }}
+        SSH_PORT: ${{ inputs.ssh_port }}
+        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_PASSWORD: ${{ inputs.ssh_password }}
+        NAMESPACE: ${{ inputs.namespace }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment_name }}
+        POD_LABEL_SELECTOR: ${{ inputs.pod_label_selector }}
+        DEPLOYMENT_FILE: ${{ inputs.deployment_file }}
+        IMAGE_REFERENCE: ${{ inputs.image_reference }}
+        IMAGE_PULL_POLICY: ${{ inputs.image_pull_policy }}
+        CREATE_REGISTRY_SECRET: ${{ inputs.create_registry_secret }}
+        REGISTRY_SECRET_NAME: ${{ inputs.registry_secret_name }}
+        REGISTRY_SERVER: ${{ inputs.registry_server }}
+        REGISTRY_USERNAME: ${{ inputs.registry_username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry_password }}
+        REGISTRY_EMAIL: ${{ inputs.registry_email }}
+        RESTART_DEPLOYMENT: ${{ inputs.restart_deployment }}
+        WAIT_TIMEOUT: ${{ inputs.wait_timeout }}
+        CLEANUP_REMOTE: ${{ inputs.cleanup_remote }}
+        REMOTE_WORKDIR: ${{ inputs.remote_dir }}
+      run: |
+        echo "::group::Running remote release"
+
+        if [[ "$CREATE_REGISTRY_SECRET" == "true" ]]; then
+          if [[ -z "$REGISTRY_USERNAME" || -z "$REGISTRY_PASSWORD" ]]; then
+            echo "::error::registry_username and registry_password are required when create_registry_secret is true"
+            exit 1
+          fi
+        fi
+
+        q() {
+          printf '%q' "$1"
+        }
+
+        REMOTE_ENV="REMOTE_WORKDIR=$(q "$REMOTE_WORKDIR") NAMESPACE=$(q "$NAMESPACE") DEPLOYMENT_NAME=$(q "$DEPLOYMENT_NAME") POD_LABEL_SELECTOR=$(q "$POD_LABEL_SELECTOR") DEPLOYMENT_FILE=$(q "$DEPLOYMENT_FILE") IMAGE_REFERENCE=$(q "$IMAGE_REFERENCE") IMAGE_PULL_POLICY=$(q "$IMAGE_PULL_POLICY") CREATE_REGISTRY_SECRET=$(q "$CREATE_REGISTRY_SECRET") REGISTRY_SECRET_NAME=$(q "$REGISTRY_SECRET_NAME") REGISTRY_SERVER=$(q "$REGISTRY_SERVER") REGISTRY_USERNAME=$(q "$REGISTRY_USERNAME") REGISTRY_PASSWORD=$(q "$REGISTRY_PASSWORD") REGISTRY_EMAIL=$(q "$REGISTRY_EMAIL") RESTART_DEPLOYMENT=$(q "$RESTART_DEPLOYMENT") WAIT_TIMEOUT=$(q "$WAIT_TIMEOUT") CLEANUP_REMOTE=$(q "$CLEANUP_REMOTE")"
+
+        sshpass -p "$SSH_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "$REMOTE_ENV bash -s" <<'REMOTE_SCRIPT'
+        set -euo pipefail
+
+        echo "Starting Kubernetes release"
+        cd "$REMOTE_WORKDIR"
+
+        if [[ "$CREATE_REGISTRY_SECRET" == "true" ]]; then
+          echo "Refreshing registry secret: $REGISTRY_SECRET_NAME"
+          kubectl -n "$NAMESPACE" delete secret "$REGISTRY_SECRET_NAME" --ignore-not-found=true
+          kubectl -n "$NAMESPACE" create secret docker-registry "$REGISTRY_SECRET_NAME" \
+            --docker-server="$REGISTRY_SERVER" \
+            --docker-username="$REGISTRY_USERNAME" \
+            --docker-password="$REGISTRY_PASSWORD" \
+            --docker-email="$REGISTRY_EMAIL"
+
+          kubectl -n "$NAMESPACE" get secret "$REGISTRY_SECRET_NAME" -o jsonpath='{.type}{"\n"}'
+        fi
+
+        echo "Updating deployment manifest: $DEPLOYMENT_FILE"
+        sed -i "s|image: .*|image: $IMAGE_REFERENCE|g" "$DEPLOYMENT_FILE"
+        sed -i "s|imagePullPolicy: .*|imagePullPolicy: $IMAGE_PULL_POLICY|g" "$DEPLOYMENT_FILE"
+
+        echo "Applying manifests"
+        kubectl apply -f "$REMOTE_WORKDIR" -R
+
+        if [[ "$RESTART_DEPLOYMENT" == "true" ]]; then
+          echo "Restarting deployment: $DEPLOYMENT_NAME"
+          kubectl -n "$NAMESPACE" rollout restart "deployment/$DEPLOYMENT_NAME"
+          kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT_NAME" --timeout="$WAIT_TIMEOUT"
+        fi
+
+        echo "Current pods"
+        kubectl -n "$NAMESPACE" get pods -l "$POD_LABEL_SELECTOR"
+        echo "Current deployment"
+        kubectl -n "$NAMESPACE" get deployment "$DEPLOYMENT_NAME"
+
+        if [[ "$CLEANUP_REMOTE" == "true" ]]; then
+          echo "Cleaning remote workdir"
+          rm -rf "$REMOTE_WORKDIR"
+        fi
+
+        echo "Release completed"
+        REMOTE_SCRIPT
+
+        echo "deployment_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
