@@ -33,15 +33,15 @@ A comprehensive GitHub Action for verifying HTTP endpoints are healthy after dep
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://your-app.com/api/health
-    timeout: '60'
-    retries: '5'
-    delay: '10'
-    expected_status: '200-299'
-    expected_content: 'status.*ok'
-    follow_redirects: 'true'
+    timeout: "60"
+    retries: "5"
+    delay: "10"
+    expected_status: "200-299"
+    expected_content: "status.*ok"
+    follow_redirects: "true"
     headers: '{"Authorization": "Bearer ${{ secrets.API_TOKEN }}"}'
-    method: 'GET'
-    fail_on_error: 'true'
+    method: "GET"
+    fail_on_error: "true"
 ```
 
 ### POST Request Healthcheck
@@ -51,62 +51,66 @@ A comprehensive GitHub Action for verifying HTTP endpoints are healthy after dep
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://your-app.com/api/validate
-    method: 'POST'
+    method: "POST"
     headers: '{"Content-Type": "application/json"}'
     body: '{"test": "healthcheck"}'
-    expected_status: '200,201'
-    expected_content: 'success'
+    expected_status: "200,201"
+    expected_content: "success"
 ```
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `url` | URL to check | Yes | - |
-| `timeout` | Request timeout in seconds | No | `30` |
-| `retries` | Number of retry attempts | No | `3` |
-| `delay` | Delay between retries in seconds | No | `5` |
-| `expected_status` | Expected HTTP status code(s) | No | `200-299` |
-| `expected_content` | Expected content in response body (regex) | No | - |
-| `follow_redirects` | Follow HTTP redirects | No | `true` |
-| `user_agent` | Custom User-Agent header | No | `RelyBytes-Healthcheck/1.0` |
-| `headers` | Custom headers (JSON format) | No | `{}` |
-| `method` | HTTP method | No | `GET` |
-| `body` | Request body for POST/PUT requests | No | - |
-| `fail_on_error` | Fail workflow on healthcheck failure | No | `true` |
+| Input              | Description                               | Required | Default                     |
+| ------------------ | ----------------------------------------- | -------- | --------------------------- |
+| `url`              | URL to check                              | Yes      | -                           |
+| `timeout`          | Request timeout in seconds                | No       | `30`                        |
+| `retries`          | Number of retry attempts                  | No       | `3`                         |
+| `delay`            | Delay between retries in seconds          | No       | `5`                         |
+| `expected_status`  | Expected HTTP status code(s)              | No       | `200-299`                   |
+| `expected_content` | Expected content in response body (regex) | No       | -                           |
+| `follow_redirects` | Follow HTTP redirects                     | No       | `true`                      |
+| `user_agent`       | Custom User-Agent header                  | No       | `RelyBytes-Healthcheck/1.0` |
+| `headers`          | Custom headers (JSON format)              | No       | `{}`                        |
+| `method`           | HTTP method                               | No       | `GET`                       |
+| `body`             | Request body for POST/PUT requests        | No       | -                           |
+| `fail_on_error`    | Fail workflow on healthcheck failure      | No       | `true`                      |
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `status` | Healthcheck status (`success`/`failed`) |
-| `http_code` | Final HTTP status code |
-| `response_time` | Response time in milliseconds |
-| `attempts` | Number of attempts made |
-| `response_body` | Response body (first 1000 chars) |
+| Output          | Description                             |
+| --------------- | --------------------------------------- |
+| `status`        | Healthcheck status (`success`/`failed`) |
+| `http_code`     | Final HTTP status code                  |
+| `response_time` | Response time in milliseconds           |
+| `attempts`      | Number of attempts made                 |
+| `response_body` | Response body (first 1000 chars)        |
 
 ## Status Code Formats
 
 The `expected_status` parameter supports multiple formats:
 
 ### Single Status Code
+
 ```yaml
-expected_status: '200'
+expected_status: "200"
 ```
 
 ### Multiple Status Codes
+
 ```yaml
-expected_status: '200,201,204'
+expected_status: "200,201,204"
 ```
 
 ### Status Code Range
+
 ```yaml
-expected_status: '200-299'
+expected_status: "200-299"
 ```
 
 ### Mixed Format
+
 ```yaml
-expected_status: '200,201,300-399'
+expected_status: "200,201,300-399"
 ```
 
 ## Examples
@@ -118,23 +122,23 @@ name: Deploy and Healthcheck
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Deploy
         run: echo "Deploying application..."
-        
+
       - name: Healthcheck
         uses: relybytes/actions/http-healthcheck@v1
         with:
           url: https://myapp.com
-          retries: '5'
-          delay: '10'
+          retries: "5"
+          delay: "10"
 ```
 
 ### API Endpoint Validation
@@ -144,11 +148,11 @@ jobs:
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://api.myapp.com/health
-    method: 'GET'
+    method: "GET"
     headers: '{"X-API-Key": "${{ secrets.API_KEY }}"}'
-    expected_status: '200'
+    expected_status: "200"
     expected_content: '"status":"healthy"'
-    timeout: '15'
+    timeout: "15"
 ```
 
 ### Database Connection Check
@@ -158,12 +162,12 @@ jobs:
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://myapp.com/health/db
-    method: 'POST'
+    method: "POST"
     headers: '{"Content-Type": "application/json"}'
     body: '{"check": "database"}'
-    expected_status: '200'
-    expected_content: 'database.*connected'
-    retries: '3'
+    expected_status: "200"
+    expected_content: "database.*connected"
+    retries: "3"
 ```
 
 ### Multi-Environment Healthcheck
@@ -174,17 +178,17 @@ jobs:
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://staging.myapp.com/health
-    expected_status: '200-299'
-    
+    expected_status: "200-299"
+
 - name: Healthcheck Production
   if: github.ref == 'refs/heads/main'
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://myapp.com/health
-    expected_status: '200'
-    expected_content: 'production.*ready'
-    retries: '10'
-    delay: '15'
+    expected_status: "200"
+    expected_content: "production.*ready"
+    retries: "10"
+    delay: "15"
 ```
 
 ### Service Dependency Healthcheck
@@ -194,32 +198,34 @@ jobs:
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://db.myapp.com/health
-    expected_status: '200'
-    fail_on_error: 'false'
-    
+    expected_status: "200"
+    fail_on_error: "false"
+
 - name: Check Redis
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://redis.myapp.com/health
-    expected_status: '200'
-    fail_on_error: 'false'
-    
+    expected_status: "200"
+    fail_on_error: "false"
+
 - name: Check Main Application
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://myapp.com/health
-    expected_status: '200'
-    expected_content: 'dependencies.*ok'
+    expected_status: "200"
+    expected_content: "dependencies.*ok"
 ```
 
 ## Content Validation
 
 ### Basic Text Matching
+
 ```yaml
-expected_content: 'Hello World'
+expected_content: "Hello World"
 ```
 
 ### Regex Patterns
+
 ```yaml
 expected_content: 'status.*ok'
 expected_content: '"version":"[0-9]+\.[0-9]+\.[0-9]+"'
@@ -227,6 +233,7 @@ expected_content: '<title>My Application</title>'
 ```
 
 ### JSON Response Validation
+
 ```yaml
 expected_content: '"status":"healthy"'
 expected_content: '"database":"connected"'
@@ -234,6 +241,7 @@ expected_content: '"uptime":[0-9]+'
 ```
 
 ### HTML Response Validation
+
 ```yaml
 expected_content: '<h1>Welcome</h1>'
 expected_content: 'class="status.*active"'
@@ -242,23 +250,27 @@ expected_content: 'class="status.*active"'
 ## Headers Configuration
 
 ### Authentication Headers
+
 ```yaml
 headers: '{"Authorization": "Bearer ${{ secrets.API_TOKEN }}"}'
 headers: '{"X-API-Key": "${{ secrets.API_KEY }}"}'
 ```
 
 ### Content Type Headers
+
 ```yaml
 headers: '{"Content-Type": "application/json"}'
 headers: '{"Accept": "application/json"}'
 ```
 
 ### Custom Headers
+
 ```yaml
 headers: '{"X-Client": "GitHub-Actions", "X-Environment": "production"}'
 ```
 
 ### Multiple Headers
+
 ```yaml
 headers: |
   {
@@ -307,24 +319,28 @@ Design your healthcheck endpoints to return:
 ### Common Issues
 
 #### Connection Timeout
+
 - Increase timeout value
 - Check network connectivity
 - Verify URL is accessible
 - Check firewall settings
 
 #### Status Code Mismatch
+
 - Verify expected status codes
 - Check API documentation
 - Look for redirect responses
 - Enable redirect following
 
 #### Content Validation Failed
+
 - Test regex patterns locally
 - Check response body format
 - Verify case sensitivity
 - Escape special characters
 
 #### Authentication Issues
+
 - Verify token validity
 - Check header format
 - Ensure proper encoding
@@ -397,23 +413,23 @@ steps:
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://your-app.com/health
-    expected_status: '200'
-    
+    expected_status: "200"
+
 - name: API healthcheck
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://your-app.com/api/health
-    expected_status: '200'
-    expected_content: 'api.*ready'
-    
+    expected_status: "200"
+    expected_content: "api.*ready"
+
 - name: Full integration test
   uses: relybytes/actions/http-healthcheck@v1
   with:
     url: https://your-app.com/api/test
-    method: 'POST'
+    method: "POST"
     body: '{"test": "integration"}'
-    expected_status: '200'
-    expected_content: 'test.*passed'
+    expected_status: "200"
+    expected_content: "test.*passed"
 ```
 
 ## Contributing
@@ -436,6 +452,6 @@ MIT License - see [LICENSE](../../LICENSE) file for details.
 
 ## Version History
 
-- `v1.0.0` - Initial release with basic healthchecking
+- `v1` - Initial release with basic healthchecking
 - `v1.1.0` - Added content validation and custom headers
 - `v1.2.0` - Enhanced retry logic and reporting

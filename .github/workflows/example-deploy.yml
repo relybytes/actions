@@ -11,22 +11,22 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: "Target environment"
         required: true
-        default: 'staging'
+        default: "staging"
         type: choice
         options:
-        - staging
-        - production
+          - staging
+          - production
       force_deploy:
-        description: 'Force deployment (skip tests)'
+        description: "Force deployment (skip tests)"
         required: false
         default: false
         type: boolean
 
 env:
-  NODE_VERSION: '18'
-  BUILD_DIRECTORY: 'dist'
+  NODE_VERSION: "18"
+  BUILD_DIRECTORY: "dist"
 
 jobs:
   # Job: Run tests and code quality checks
@@ -43,7 +43,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -73,7 +73,8 @@ jobs:
   # Job: Deploy to staging environment
   deploy-staging:
     name: Deploy to Staging
-    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    if: github.ref == 'refs/heads/develop' || (github.event_name ==
+      'workflow_dispatch' && github.event.inputs.environment == 'staging')
     needs: test
     runs-on: ubuntu-latest
     environment: staging
@@ -88,7 +89,7 @@ jobs:
           path: ${{ env.BUILD_DIRECTORY }}/
 
       - name: Setup SSH connection
-        uses: relybytes/actions/ssh-setup@v1.0.0
+        uses: relybytes/actions/ssh-setup@v1
         id: ssh
         with:
           host: ${{ secrets.STAGING_HOST }}
@@ -97,38 +98,38 @@ jobs:
           connection_alias: staging_server
 
       - name: Backup current staging version
-        uses: relybytes/actions/hestia-backup@v1.0.0
+        uses: relybytes/actions/hestia-backup@v1
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           private_key: ${{ secrets.STAGING_PRIVATE_KEY }}
           source_directory: /home/user/web/staging.mysite.com/public_html/
           backup_name: staging_backup_${{ github.sha }}
-          retention: '5'
-          compression: 'tar.gz'
-          exclude_patterns: '*.log,cache/*,tmp/*'
+          retention: "5"
+          compression: "tar.gz"
+          exclude_patterns: "*.log,cache/*,tmp/*"
 
       - name: Deploy to staging
-        uses: relybytes/actions/hestia-deploy@v1.0.0
+        uses: relybytes/actions/hestia-deploy@v1
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           private_key: ${{ secrets.STAGING_PRIVATE_KEY }}
           source: ${{ env.BUILD_DIRECTORY }}/
           target: /home/user/web/staging.mysite.com/public_html/
-          delete: 'true'
-          backup: 'false'  # Already backed up
-          rsync_options: '-avz --progress --exclude="*.map"'
+          delete: "true"
+          backup: "false" # Already backed up
+          rsync_options: "-avz --progress --exclude=\"*.map\""
 
       - name: Healthcheck staging
-        uses: relybytes/actions/http-healthcheck@v1.0.0
+        uses: relybytes/actions/http-healthcheck@v1
         with:
           url: https://staging.mysite.com/health
-          expected_status: '200-299'
-          expected_content: 'status.*ok'
-          retries: '5'
-          delay: '10'
-          timeout: '30'
+          expected_status: "200-299"
+          expected_content: "status.*ok"
+          retries: "5"
+          delay: "10"
+          timeout: "30"
 
       - name: Run smoke tests
         run: |
@@ -145,7 +146,8 @@ jobs:
   # Job: Deploy to production environment
   deploy-production:
     name: Deploy to Production
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch'
+      && github.event.inputs.environment == 'production')
     needs: test
     runs-on: ubuntu-latest
     environment: production
@@ -160,7 +162,7 @@ jobs:
           path: ${{ env.BUILD_DIRECTORY }}/
 
       - name: Create production backup
-        uses: relybytes/actions/hestia-backup@v1.0.0
+        uses: relybytes/actions/hestia-backup@v1
         id: backup
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
@@ -168,9 +170,9 @@ jobs:
           private_key: ${{ secrets.PRODUCTION_PRIVATE_KEY }}
           source_directory: /home/user/web/mysite.com/public_html/
           backup_name: production_backup_${{ github.sha }}
-          retention: '14'
-          compression: 'tar.bz2'
-          exclude_patterns: '*.log,cache/*,tmp/*,node_modules/*,storage/logs/*'
+          retention: "14"
+          compression: "tar.bz2"
+          exclude_patterns: "*.log,cache/*,tmp/*,node_modules/*,storage/logs/*"
           pre_backup_command: |
             # Create database dump
             mysqldump -u root -p${{ secrets.DB_PASSWORD }} --single-transaction mysite > /tmp/mysite.sql
@@ -188,47 +190,47 @@ jobs:
           echo "Backup verified: $SIZE bytes"
 
       - name: Deploy to production
-        uses: relybytes/actions/hestia-deploy@v1.0.0
+        uses: relybytes/actions/hestia-deploy@v1
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           private_key: ${{ secrets.PRODUCTION_PRIVATE_KEY }}
           source: ${{ env.BUILD_DIRECTORY }}/
           target: /home/user/web/mysite.com/public_html/
-          delete: 'true'
-          backup: 'false'  # Already backed up
-          rsync_options: '-avz --progress --exclude="*.map" --exclude="*.log"'
-          ssh_options: '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts'
+          delete: "true"
+          backup: "false" # Already backed up
+          rsync_options: "-avz --progress --exclude=\"*.map\" --exclude=\"*.log\""
+          ssh_options: "-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts"
 
       - name: Production healthcheck
-        uses: relybytes/actions/http-healthcheck@v1.0.0
+        uses: relybytes/actions/http-healthcheck@v1
         with:
           url: https://mysite.com/health
-          expected_status: '200'
-          expected_content: '"status":"healthy"'
-          retries: '10'
-          delay: '15'
-          timeout: '60'
-          headers: '{"X-Healthcheck": "github-actions"}'
+          expected_status: "200"
+          expected_content: "\"status\":\"healthy\""
+          retries: "10"
+          delay: "15"
+          timeout: "60"
+          headers: "{\"X-Healthcheck\": \"github-actions\"}"
 
       - name: API healthcheck
-        uses: relybytes/actions/http-healthcheck@v1.0.0
+        uses: relybytes/actions/http-healthcheck@v1
         with:
           url: https://mysite.com/api/health
-          method: 'GET'
-          headers: '{"Authorization": "Bearer ${{ secrets.API_TOKEN }}"}'
-          expected_status: '200'
-          expected_content: 'database.*connected'
+          method: "GET"
+          headers: "{\"Authorization\": \"Bearer ${{ secrets.API_TOKEN }}\"}"
+          expected_status: "200"
+          expected_content: "database.*connected"
 
       - name: Run production smoke tests
         run: |
           # Test main endpoint
           curl -f https://mysite.com/
-          
+
           # Test API endpoints
           curl -f -H "Authorization: Bearer ${{ secrets.API_TOKEN }}" \
                https://mysite.com/api/status
-          
+
           # Test critical functionality
           curl -f -X POST https://mysite.com/api/ping \
                -H "Content-Type: application/json" \
@@ -249,29 +251,30 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        site: [site1, site2, site3]
+        site: [ site1, site2, site3 ]
     steps:
       - name: Backup ${{ matrix.site }}
-        uses: relybytes/actions/hestia-backup@v1.0.0
+        uses: relybytes/actions/hestia-backup@v1
         with:
           host: ${{ secrets.BACKUP_HOST }}
           username: ${{ secrets.BACKUP_USER }}
           private_key: ${{ secrets.BACKUP_PRIVATE_KEY }}
           source_directory: /home/user/web/${{ matrix.site }}.com/public_html/
           backup_name: ${{ matrix.site }}_daily_$(date +%Y%m%d)
-          retention: '30'
-          compression: 'tar.bz2'
-          exclude_patterns: '*.log,cache/*,tmp/*,storage/logs/*'
+          retention: "30"
+          compression: "tar.bz2"
+          exclude_patterns: "*.log,cache/*,tmp/*,storage/logs/*"
 
   # Job: Rollback (manual trigger)
   rollback:
     name: Rollback Production
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'rollback'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment
+      == 'rollback'
     runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Setup SSH connection
-        uses: relybytes/actions/ssh-setup@v1.0.0
+        uses: relybytes/actions/ssh-setup@v1
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
@@ -298,15 +301,14 @@ jobs:
           "
 
       - name: Verify rollback
-        uses: relybytes/actions/http-healthcheck@v1.0.0
+        uses: relybytes/actions/http-healthcheck@v1
         with:
           url: https://mysite.com/health
-          expected_status: '200'
-          retries: '5'
-          delay: '10'
+          expected_status: "200"
+          retries: "5"
+          delay: "10"
 
       - name: Notify rollback
         run: |
           echo "Rollback completed successfully"
           echo "Restored from: ${{ steps.find_backup.outputs.backup_path }}"
-

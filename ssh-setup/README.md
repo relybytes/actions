@@ -34,13 +34,13 @@ A reusable GitHub Action for setting up SSH connections for deployment and autom
   uses: relybytes/actions/ssh-setup@v1
   with:
     host: ${{ secrets.SSH_HOST }}
-    port: '2222'
+    port: "2222"
     username: ${{ secrets.SSH_USER }}
     private_key: ${{ secrets.SSH_PRIVATE_KEY }}
     known_hosts: ${{ secrets.KNOWN_HOSTS }}
-    connection_alias: 'production_server'
-    timeout: '30'
-    ssh_options: '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts'
+    connection_alias: "production_server"
+    timeout: "30"
+    ssh_options: "-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts"
 ```
 
 ### Using in Multi-Step Workflows
@@ -57,7 +57,7 @@ A reusable GitHub Action for setting up SSH connections for deployment and autom
 - name: Deploy files
   run: |
     scp ./dist/* ${{ steps.ssh.outputs.connection_alias }}:/var/www/html/
-    
+
 - name: Run remote command
   run: |
     ssh ${{ steps.ssh.outputs.connection_alias }} "systemctl reload nginx"
@@ -65,23 +65,23 @@ A reusable GitHub Action for setting up SSH connections for deployment and autom
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `host` | SSH host address | Yes | - |
-| `port` | SSH port | No | `22` |
-| `username` | SSH username | Yes | - |
-| `private_key` | SSH private key | Yes | - |
-| `known_hosts` | Known hosts content (optional) | No | - |
-| `ssh_options` | Additional SSH options | No | `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null` |
-| `connection_alias` | SSH connection alias for later use | No | `deploy_target` |
-| `timeout` | Connection timeout in seconds | No | `30` |
+| Input              | Description                        | Required | Default                                                       |
+| ------------------ | ---------------------------------- | -------- | ------------------------------------------------------------- |
+| `host`             | SSH host address                   | Yes      | -                                                             |
+| `port`             | SSH port                           | No       | `22`                                                          |
+| `username`         | SSH username                       | Yes      | -                                                             |
+| `private_key`      | SSH private key                    | Yes      | -                                                             |
+| `known_hosts`      | Known hosts content (optional)     | No       | -                                                             |
+| `ssh_options`      | Additional SSH options             | No       | `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null` |
+| `connection_alias` | SSH connection alias for later use | No       | `deploy_target`                                               |
+| `timeout`          | Connection timeout in seconds      | No       | `30`                                                          |
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
+| Output             | Description                                      |
+| ------------------ | ------------------------------------------------ |
 | `connection_alias` | SSH connection alias for use in subsequent steps |
-| `connection_test` | Connection test result (`success`/`failed`) |
+| `connection_test`  | Connection test result (`success`/`failed`)      |
 
 ## Setup
 
@@ -131,25 +131,25 @@ name: Deploy Application
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup SSH
         uses: relybytes/actions/ssh-setup@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           private_key: ${{ secrets.SSH_PRIVATE_KEY }}
-          
+
       - name: Deploy files
         run: |
           rsync -avz ./dist/ deploy_target:/var/www/html/
-          
+
       - name: Restart service
         run: |
           ssh deploy_target "sudo systemctl reload nginx"
@@ -162,7 +162,7 @@ name: Deploy to Multiple Servers
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
@@ -172,7 +172,7 @@ jobs:
         server: [web1, web2, web3]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup SSH for ${{ matrix.server }}
         uses: relybytes/actions/ssh-setup@v1
         with:
@@ -180,11 +180,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           private_key: ${{ secrets.SSH_PRIVATE_KEY }}
           connection_alias: ${{ matrix.server }}
-          
+
       - name: Deploy to ${{ matrix.server }}
         run: |
           rsync -avz ./dist/ ${{ matrix.server }}:/var/www/html/
-          
+
       - name: Health check on ${{ matrix.server }}
         run: |
           ssh ${{ matrix.server }} "curl -f http://localhost/health"
@@ -256,24 +256,28 @@ After setup, you can use these environment variables in subsequent steps:
 ### Common Issues
 
 #### Connection Timeout
+
 - Verify host and port are correct
 - Check network connectivity
 - Increase timeout value if needed
 - Verify firewall settings
 
 #### Authentication Failed
+
 - Check SSH key format (must be valid private key)
 - Verify public key is properly authorized
 - Check user permissions on server
 - Ensure SSH service is running
 
 #### Host Key Verification Failed
+
 - Add known hosts fingerprint
 - Use `StrictHostKeyChecking=no` for testing only
 - Verify server hasn't changed
 - Check for man-in-the-middle attacks
 
 #### Permission Denied
+
 - Verify user has SSH access
 - Check directory permissions
 - Ensure authorized_keys file permissions (600)
@@ -322,7 +326,7 @@ ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
     host: ${{ secrets.BASTION_HOST }}
     username: ${{ secrets.BASTION_USER }}
     private_key: ${{ secrets.BASTION_KEY }}
-    ssh_options: '-o ForwardAgent=yes'
+    ssh_options: "-o ForwardAgent=yes"
 
 - name: Connect through bastion
   run: |
@@ -365,6 +369,6 @@ MIT License - see [LICENSE](../../LICENSE) file for details.
 
 ## Version History
 
-- `v1.0.0` - Initial release with basic SSH setup
+- `v1` - Initial release with basic SSH setup
 - `v1.1.0` - Added connection alias and environment variables
 - `v1.2.0` - Enhanced error handling and validation

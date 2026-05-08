@@ -23,17 +23,17 @@ The `suffix` is automatically derived from the current Git ref (branch / tag / P
 
 ### Default suffix mapping
 
-| Source ref / event   | Suffix          |
-| -------------------- | --------------- |
-| `main`, `master`     | `prod`          |
-| `develop`, `dev`     | `dev`           |
-| `staging`            | `staging`       |
-| `release/*`          | `rc`            |
-| `hotfix/*`           | `hotfix`        |
-| `feature/*`          | `feat`          |
-| Pull request         | `pr-{number}`   |
-| Git tag push         | `release`       |
-| Other branch         | sanitized branch name (lowercase, `/` → `-`) |
+| Source ref / event | Suffix                                       |
+| ------------------ | -------------------------------------------- |
+| `main`, `master`   | `prod`                                       |
+| `develop`, `dev`   | `dev`                                        |
+| `staging`          | `staging`                                    |
+| `release/*`        | `rc`                                         |
+| `hotfix/*`         | `hotfix`                                     |
+| `feature/*`        | `feat`                                       |
+| Pull request       | `pr-{number}`                                |
+| Git tag push       | `release`                                    |
+| Other branch       | sanitized branch name (lowercase, `/` → `-`) |
 
 Override with the `suffix` input when the default doesn't fit, e.g. `suffix: canary`. Pass `suffix: none` to disable the suffix entirely.
 
@@ -52,7 +52,7 @@ All extra tags share the same suffixed repository:
 ```yaml
 permissions:
   contents: read
-  packages: write   # required for the default GITHUB_TOKEN to push to ghcr.io
+  packages: write # required for the default GITHUB_TOKEN to push to ghcr.io
 
 jobs:
   build:
@@ -93,38 +93,38 @@ ghcr.io/<owner>/<repo>-prod:latest
 
 ## Inputs
 
-| Input             | Required | Default                  | Description                                                          |
-| ----------------- | -------- | ------------------------ | -------------------------------------------------------------------- |
-| `registry`        | no       | `ghcr.io`                | Container registry host                                              |
-| `username`        | no       | `${{ github.actor }}`    | Registry username                                                    |
-| `password`        | no       | `${{ github.token }}`    | Registry password / access token                                     |
-| `image_name`      | no       | repo (lowercased)        | Base image name. The suffix is appended as `-{suffix}`.              |
-| `dockerfile`      | no       | `Dockerfile`             | Path to the Dockerfile (relative to context)                         |
-| `context`         | no       | `.`                      | Build context directory                                              |
-| `suffix`          | no       | derived from ref         | Override the suffix. Use `none` to disable.                          |
-| `version`         | no       | auto-generated           | Override the tag (skips the `YYYY-MM-DD.shortsha` generation)        |
-| `platforms`       | no       | `linux/amd64`            | Comma-separated target platforms                                     |
-| `build_args`      | no       | —                        | Newline-separated build args (`KEY=VALUE`)                           |
-| `target`          | no       | —                        | Target build stage for multi-stage Dockerfiles                       |
-| `labels`          | no       | OCI auto-labels          | Newline-separated labels (override the auto-generated set)           |
-| `push`            | no       | `true`                   | Push to the registry (set to `false` for PR validation)              |
-| `additional_tags` | no       | —                        | Comma-separated additional tags on the suffixed image                |
-| `latest`          | no       | `auto`                   | `true` / `false` / `auto`. `auto` enables `:latest` only on main/master non-PR builds |
-| `cache`           | no       | `true`                   | Enable BuildKit inline cache                                         |
-| `no_cache`        | no       | `false`                  | Disable build cache entirely                                         |
+| Input             | Required | Default               | Description                                                                           |
+| ----------------- | -------- | --------------------- | ------------------------------------------------------------------------------------- |
+| `registry`        | no       | `ghcr.io`             | Container registry host                                                               |
+| `username`        | no       | `${{ github.actor }}` | Registry username                                                                     |
+| `password`        | no       | `${{ github.token }}` | Registry password / access token                                                      |
+| `image_name`      | no       | repo (lowercased)     | Base image name. The suffix is appended as `-{suffix}`.                               |
+| `dockerfile`      | no       | `Dockerfile`          | Path to the Dockerfile (relative to context)                                          |
+| `context`         | no       | `.`                   | Build context directory                                                               |
+| `suffix`          | no       | derived from ref      | Override the suffix. Use `none` to disable.                                           |
+| `version`         | no       | auto-generated        | Override the tag (skips the `YYYY-MM-DD.shortsha` generation)                         |
+| `platforms`       | no       | `linux/amd64`         | Comma-separated target platforms                                                      |
+| `build_args`      | no       | —                     | Newline-separated build args (`KEY=VALUE`)                                            |
+| `target`          | no       | —                     | Target build stage for multi-stage Dockerfiles                                        |
+| `labels`          | no       | OCI auto-labels       | Newline-separated labels (override the auto-generated set)                            |
+| `push`            | no       | `true`                | Push to the registry (set to `false` for PR validation)                               |
+| `additional_tags` | no       | —                     | Comma-separated additional tags on the suffixed image                                 |
+| `latest`          | no       | `auto`                | `true` / `false` / `auto`. `auto` enables `:latest` only on main/master non-PR builds |
+| `cache`           | no       | `true`                | Enable BuildKit inline cache                                                          |
+| `no_cache`        | no       | `false`               | Disable build cache entirely                                                          |
 
 ## Outputs
 
-| Output             | Description                                                |
-| ------------------ | ---------------------------------------------------------- |
-| `image`            | Full image reference (`registry/name-suffix:version`)      |
-| `image_repository` | Repository portion (`registry/name-suffix`) without tag    |
-| `version`          | Resolved tag (`YYYY-MM-DD.shortsha` or override)           |
-| `suffix`           | Resolved environment suffix                                |
-| `branch`           | Branch used to derive the suffix                           |
-| `tags`             | All tags published (newline-separated)                     |
-| `digest`           | Image digest after push                                    |
-| `build_time`       | UTC timestamp of the build                                 |
+| Output             | Description                                             |
+| ------------------ | ------------------------------------------------------- |
+| `image`            | Full image reference (`registry/name-suffix:version`)   |
+| `image_repository` | Repository portion (`registry/name-suffix`) without tag |
+| `version`          | Resolved tag (`YYYY-MM-DD.shortsha` or override)        |
+| `suffix`           | Resolved environment suffix                             |
+| `branch`           | Branch used to derive the suffix                        |
+| `tags`             | All tags published (newline-separated)                  |
+| `digest`           | Image digest after push                                 |
+| `build_time`       | UTC timestamp of the build                              |
 
 ## Examples
 

@@ -35,47 +35,47 @@ A production-ready GitHub Action for deploying static sites to HestiaCP servers 
   uses: relybytes/actions/hestia-deploy@v1
   with:
     host: ${{ secrets.SSH_HOST }}
-    port: '22'
+    port: "22"
     username: ${{ secrets.SSH_USER }}
     private_key: ${{ secrets.SSH_PRIVATE_KEY }}
     source: dist/
     target: /home/user/web/domain.com/public_html/
-    delete: 'true'
-    backup: 'true'
-    backup_retention: '7'
+    delete: "true"
+    backup: "true"
+    backup_retention: "7"
     healthcheck_url: https://domain.com/health
-    healthcheck_timeout: '30'
-    healthcheck_retries: '3'
+    healthcheck_timeout: "30"
+    healthcheck_retries: "3"
     rsync_options: '-avz --progress --exclude="*.log"'
-    ssh_options: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+    ssh_options: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 ```
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `host` | SSH host address | Yes | - |
-| `port` | SSH port | No | `22` |
-| `username` | SSH username | Yes | - |
-| `private_key` | SSH private key | Yes | - |
-| `source` | Source directory to deploy | No | `dist/` |
-| `target` | Target directory on server | Yes | - |
-| `delete` | Delete files in target not in source | No | `false` |
-| `backup` | Create backup before deployment | No | `true` |
-| `backup_retention` | Number of backups to keep | No | `7` |
-| `healthcheck_url` | URL to check after deployment | No | - |
-| `healthcheck_timeout` | Healthcheck timeout in seconds | No | `30` |
-| `healthcheck_retries` | Healthcheck retry attempts | No | `3` |
-| `rsync_options` | Additional rsync options | No | `-avz --progress` |
-| `ssh_options` | Additional SSH options | No | `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null` |
+| Input                 | Description                          | Required | Default                                                       |
+| --------------------- | ------------------------------------ | -------- | ------------------------------------------------------------- |
+| `host`                | SSH host address                     | Yes      | -                                                             |
+| `port`                | SSH port                             | No       | `22`                                                          |
+| `username`            | SSH username                         | Yes      | -                                                             |
+| `private_key`         | SSH private key                      | Yes      | -                                                             |
+| `source`              | Source directory to deploy           | No       | `dist/`                                                       |
+| `target`              | Target directory on server           | Yes      | -                                                             |
+| `delete`              | Delete files in target not in source | No       | `false`                                                       |
+| `backup`              | Create backup before deployment      | No       | `true`                                                        |
+| `backup_retention`    | Number of backups to keep            | No       | `7`                                                           |
+| `healthcheck_url`     | URL to check after deployment        | No       | -                                                             |
+| `healthcheck_timeout` | Healthcheck timeout in seconds       | No       | `30`                                                          |
+| `healthcheck_retries` | Healthcheck retry attempts           | No       | `3`                                                           |
+| `rsync_options`       | Additional rsync options             | No       | `-avz --progress`                                             |
+| `ssh_options`         | Additional SSH options               | No       | `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null` |
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `deployment_time` | Timestamp of deployment |
-| `backup_path` | Path of created backup (if applicable) |
-| `healthcheck_status` | Healthcheck result |
+| Output               | Description                            |
+| -------------------- | -------------------------------------- |
+| `deployment_time`    | Timestamp of deployment                |
+| `backup_path`        | Path of created backup (if applicable) |
+| `healthcheck_status` | Healthcheck result                     |
 
 ## Setup
 
@@ -106,6 +106,7 @@ Add the following secrets to your repository:
 ### 4. Verify Permissions
 
 Ensure the SSH user has:
+
 - Write permissions to the target directory
 - Sufficient disk space for backups
 - Network access for healthcheck URLs
@@ -119,25 +120,25 @@ name: Deploy Static Site
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          
+          node-version: "18"
+
       - name: Install dependencies
         run: npm ci
-        
+
       - name: Build
         run: npm run build
-        
+
       - name: Deploy to HestiaCP
         uses: relybytes/actions/hestia-deploy@v1
         with:
@@ -145,7 +146,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           private_key: ${{ secrets.SSH_PRIVATE_KEY }}
           target: /home/user/web/mysite.com/public_html/
-          delete: 'true'
+          delete: "true"
           healthcheck_url: https://mysite.com
 ```
 
@@ -156,17 +157,17 @@ name: Deploy
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Build
         run: npm run build
-        
+
       - name: Deploy to Staging
         if: github.ref == 'refs/heads/develop'
         uses: relybytes/actions/hestia-deploy@v1
@@ -175,9 +176,9 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           private_key: ${{ secrets.STAGING_KEY }}
           target: /home/user/web/staging.mysite.com/public_html/
-          delete: 'true'
+          delete: "true"
           healthcheck_url: https://staging.mysite.com/health
-          
+
       - name: Deploy to Production
         if: github.ref == 'refs/heads/main'
         uses: relybytes/actions/hestia-deploy@v1
@@ -186,8 +187,8 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           private_key: ${{ secrets.PRODUCTION_KEY }}
           target: /home/user/web/mysite.com/public_html/
-          delete: 'true'
-          backup_retention: '14'
+          delete: "true"
+          backup_retention: "14"
           healthcheck_url: https://mysite.com/health
 ```
 
@@ -205,21 +206,25 @@ jobs:
 ### Common Issues
 
 #### SSH Connection Failed
+
 - Verify host and port are correct
 - Check SSH key format and permissions
 - Ensure server is accessible from GitHub Actions
 
 #### Permission Denied
+
 - Verify SSH user has write permissions to target directory
 - Check directory ownership and permissions
 - Ensure SSH key is properly authorized
 
 #### Rsync Failed
+
 - Check source directory exists and contains files
 - Verify target directory path is correct
 - Check available disk space
 
 #### Healthcheck Failed
+
 - Verify healthcheck URL is accessible
 - Check timeout and retry settings
 - Ensure application is properly configured
@@ -255,6 +260,6 @@ MIT License - see [LICENSE](../../LICENSE) file for details.
 
 ## Version History
 
-- `v1.0.0` - Initial release with core deployment features
+- `v1` - Initial release with core deployment features
 - `v1.1.0` - Added healthcheck and backup retention
 - `v1.2.0` - Enhanced error handling and logging

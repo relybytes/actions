@@ -1,0 +1,252 @@
+name: "Kubernetes Image Build"
+description: "Build a Docker image and push it to a container registry, ready for Kubernetes deployment"
+author: "RelyBytes"
+branding:
+  icon: "package"
+  color: "blue"
+
+inputs:
+  registry:
+    description: "Container registry URL (e.g. docker.io, ghcr.io, registry.example.com)"
+    required: true
+  username:
+    description: "Registry username"
+    required: true
+  password:
+    description: "Registry password or access token"
+    required: true
+  image_name:
+    description: "Image name (e.g. myorg/myapp)"
+    required: true
+  image_tag:
+    description: "Primary image tag"
+    required: false
+    default: ""
+  additional_tags:
+    description: "Comma-separated additional tags (e.g. 'latest,stable')"
+    required: false
+    default: ""
+  dockerfile:
+    description: "Path to the Dockerfile"
+    required: false
+    default: "Dockerfile"
+  context:
+    description: "Build context directory"
+    required: false
+    default: "."
+  build_args:
+    description: "Newline-separated build arguments (KEY=VALUE)"
+    required: false
+    default: ""
+  target:
+    description: "Target build stage for multi-stage builds"
+    required: false
+    default: ""
+  platforms:
+    description: "Target platforms (comma-separated, e.g. linux/amd64,linux/arm64)"
+    required: false
+    default: "linux/amd64"
+  push:
+    description: "Push the image to the registry"
+    required: false
+    default: "true"
+  cache:
+    description: "Enable BuildKit inline cache"
+    required: false
+    default: "true"
+  no_cache:
+    description: "Disable build cache"
+    required: false
+    default: "false"
+  labels:
+    description: "Newline-separated OCI labels (KEY=VALUE)"
+    required: false
+    default: ""
+
+outputs:
+  image:
+    description: "Full image reference (registry/name:tag)"
+    value: ${{ steps.build.outputs.image }}
+  image_tag:
+    description: "Resolved image tag"
+    value: ${{ steps.build.outputs.image_tag }}
+  digest:
+    description: "Image digest after push"
+    value: ${{ steps.build.outputs.digest }}
+  build_time:
+    description: "Timestamp of the build"
+    value: ${{ steps.build.outputs.build_time }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_PASSWORD: ${{ inputs.password }}
+        INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+        INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+        INPUT_CONTEXT: ${{ inputs.context }}
+      run: |
+        echo "::group::Validating inputs"
+
+        if [[ -z "$INPUT_REGISTRY" ]]; then
+          echo "::error::Registry is required"
+          exit 1
+        fi
+
+        if [[ -z "$INPUT_USERNAME" ]]; then
+          echo "::error::Registry username is required"
+          exit 1
+        fi
+
+        if [[ -z "$INPUT_PASSWORD" ]]; then
+          echo "::error::Registry password is required"
+          exit 1
+        fi
+
+        if [[ -z "$INPUT_IMAGE_NAME" ]]; then
+          echo "::error::Image name is required"
+          exit 1
+        fi
+
+        if [[ ! -d "$INPUT_CONTEXT" ]]; then
+          echo "::error::Build context '$INPUT_CONTEXT' does not exist"
+          exit 1
+        fi
+
+        if [[ ! -f "$INPUT_CONTEXT/$INPUT_DOCKERFILE" ]] && [[ ! -f "$INPUT_DOCKERFILE" ]]; then
+          echo "::error::Dockerfile not found at '$INPUT_DOCKERFILE' (relative to context '$INPUT_CONTEXT')"
+          exit 1
+        fi
+
+        echo "Inputs validated successfully"
+        echo "::endgroup::"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to registry
+      shell: bash
+      env:
+        REG_USER: ${{ inputs.username }}
+        REG_PASS: ${{ inputs.password }}
+        REG_HOST: ${{ inputs.registry }}
+      run: |
+        echo "::group::Authenticating to registry"
+        echo "$REG_PASS" | docker login "$REG_HOST" --username "$REG_USER" --password-stdin
+        echo "Login successful to $REG_HOST"
+        echo "::endgroup::"
+
+    - name: Build and push image
+      id: build
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+        ADDITIONAL_TAGS: ${{ inputs.additional_tags }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        BUILD_CONTEXT: ${{ inputs.context }}
+        BUILD_ARGS: ${{ inputs.build_args }}
+        BUILD_TARGET: ${{ inputs.target }}
+        PLATFORMS: ${{ inputs.platforms }}
+        PUSH: ${{ inputs.push }}
+        CACHE: ${{ inputs.cache }}
+        NO_CACHE: ${{ inputs.no_cache }}
+        LABELS: ${{ inputs.labels }}
+        GITHUB_SHA: ${{ github.sha }}
+      run: |
+        echo "::group::Building image"
+
+        BUILD_START=$(date +%s)
+
+        # Resolve primary tag (default: short SHA)
+        if [[ -z "$IMAGE_TAG" ]]; then
+          IMAGE_TAG="${GITHUB_SHA:0:7}"
+        fi
+
+        FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        echo "Primary image: $FULL_IMAGE"
+
+        # Assemble tag arguments
+        TAG_ARGS=("--tag" "$FULL_IMAGE")
+        if [[ -n "$ADDITIONAL_TAGS" ]]; then
+          IFS=',' read -ra EXTRA <<< "$ADDITIONAL_TAGS"
+          for t in "${EXTRA[@]}"; do
+            t="$(echo "$t" | xargs)"
+            [[ -z "$t" ]] && continue
+            TAG_ARGS+=("--tag" "${REGISTRY}/${IMAGE_NAME}:${t}")
+            echo "Additional tag: ${REGISTRY}/${IMAGE_NAME}:${t}"
+          done
+        fi
+
+        # Build args
+        BUILD_ARG_OPTS=()
+        if [[ -n "$BUILD_ARGS" ]]; then
+          while IFS= read -r line; do
+            line="$(echo "$line" | xargs)"
+            [[ -z "$line" ]] && continue
+            BUILD_ARG_OPTS+=("--build-arg" "$line")
+          done <<< "$BUILD_ARGS"
+        fi
+
+        # Labels
+        LABEL_OPTS=()
+        if [[ -n "$LABELS" ]]; then
+          while IFS= read -r line; do
+            line="$(echo "$line" | xargs)"
+            [[ -z "$line" ]] && continue
+            LABEL_OPTS+=("--label" "$line")
+          done <<< "$LABELS"
+        fi
+
+        # Optional flags
+        EXTRA_OPTS=()
+        [[ -n "$BUILD_TARGET" ]] && EXTRA_OPTS+=("--target" "$BUILD_TARGET")
+        [[ "$NO_CACHE" == "true" ]] && EXTRA_OPTS+=("--no-cache")
+        [[ "$CACHE" == "true" ]] && EXTRA_OPTS+=("--build-arg" "BUILDKIT_INLINE_CACHE=1")
+        [[ "$PUSH" == "true" ]] && EXTRA_OPTS+=("--push") || EXTRA_OPTS+=("--load")
+
+        echo "Running buildx with platforms: $PLATFORMS"
+        docker buildx build \
+          --platform "$PLATFORMS" \
+          --file "${BUILD_CONTEXT}/${DOCKERFILE}" \
+          "${TAG_ARGS[@]}" \
+          "${BUILD_ARG_OPTS[@]}" \
+          "${LABEL_OPTS[@]}" \
+          "${EXTRA_OPTS[@]}" \
+          "$BUILD_CONTEXT"
+
+        BUILD_END=$(date +%s)
+        BUILD_DURATION=$((BUILD_END - BUILD_START))
+        echo "Build completed in ${BUILD_DURATION}s"
+
+        # Resolve digest after push
+        DIGEST=""
+        if [[ "$PUSH" == "true" ]]; then
+          DIGEST=$(docker buildx imagetools inspect "$FULL_IMAGE" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+          if [[ -n "$DIGEST" ]]; then
+            echo "Image digest: $DIGEST"
+          fi
+        fi
+
+        echo "image=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
+        echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+        echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+        echo "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+
+        echo "::endgroup::"
+
+    - name: Cleanup
+      shell: bash
+      if: always()
+      env:
+        REG_HOST: ${{ inputs.registry }}
+      run: |
+        echo "::group::Cleanup"
+        docker logout "$REG_HOST" >/dev/null 2>&1 || true
+        echo "Logged out from $REG_HOST"
+        echo "::endgroup::"
