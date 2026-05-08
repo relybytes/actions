@@ -22,7 +22,7 @@ Pairs with [`k8s-image-build`](../k8s-image-build/) for a full build-and-deploy 
 ## Usage
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -118,7 +118,7 @@ Use `replacements` for all dynamic values: image, version, environment, host, do
 Workflow:
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -211,7 +211,7 @@ Use `env_substitution: "true"` when your manifests use shell-style environment p
 Workflow:
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   env:
     APP_ENV: production
     HOST: api.example.com
@@ -243,7 +243,7 @@ rules:
 ### Apply a directory of manifests with generic replacements
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: api-prod
@@ -275,7 +275,7 @@ spec:
 ### Apply manifests with replicas, host and environment values
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: api-prod
@@ -323,7 +323,7 @@ spec:
 Use `set_image` when you prefer to update container images after applying manifests.
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -344,7 +344,7 @@ kubectl --namespace production set image deployment/worker worker=ghcr.io/myorg/
 ### Kustomize with environment-specific overlay
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: staging
@@ -364,7 +364,7 @@ Placeholder replacement and `envsubst` are skipped because Kustomize has its own
 ### Server-side dry run
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -377,7 +377,7 @@ Placeholder replacement and `envsubst` are skipped because Kustomize has its own
 ### Client-side dry run
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -392,7 +392,7 @@ Placeholder replacement and `envsubst` are skipped because Kustomize has its own
 Newline-separated:
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -407,7 +407,7 @@ Newline-separated:
 Comma-separated:
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -422,7 +422,7 @@ By default, the action waits for rollout-capable resources detected from `kubect
 You can also pass them manually:
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -440,7 +440,7 @@ You can also pass them manually:
 Use prune only when all resources managed by this action share a safe label.
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -461,7 +461,7 @@ metadata:
 ### Pin kubectl version
 
 ```yaml
-- uses: relybytes/actions/k8s-deploy@v1
+- uses: relybytes/actions/kube-deploy@v1
   with:
     kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
     namespace: production
@@ -502,7 +502,7 @@ jobs:
           additional_tags: latest
 
       - name: Deploy to cluster
-        uses: relybytes/actions/k8s-deploy@v1
+        uses: relybytes/actions/kube-deploy@v1
         with:
           kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
           namespace: production
@@ -558,7 +558,7 @@ jobs:
           docker push "$IMAGE_NAME:$IMAGE_TAG"
 
       - name: Deploy to K3s
-        uses: relybytes/actions/k8s-deploy@v1
+        uses: relybytes/actions/kube-deploy@v1
         with:
           kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
           namespace: rely-platform
