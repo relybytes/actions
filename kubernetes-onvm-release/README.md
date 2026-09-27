@@ -1,5 +1,9 @@
 # Kubernetes ONVM Release Action
 
+> **Unmaintained.** This action still works but receives no fixes, and no
+> workflow in the organisation calls it. See the
+> [repository README](../README.md).
+
 A reusable GitHub Action for releasing Kubernetes manifests to a remote server over SSH.
 
 ## Features

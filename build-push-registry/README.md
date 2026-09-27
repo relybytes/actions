@@ -1,5 +1,9 @@
 # Build & Push to Registry
 
+> **Deprecated.** Use [`relybytes/actions-docker-build-push@v1`](https://github.com/relybytes/actions-docker-build-push) instead. The copy in
+> this monorepo predates the split, is missing features the extracted version
+> gained, and is not maintained.
+
 Build a Docker image and push it to **any container registry** using a fixed naming convention:
 
 ```

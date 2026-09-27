@@ -1,5 +1,9 @@
 # Kubernetes Deploy
 
+> **Deprecated.** Use [`relybytes/actions-kubernetes-deploy@v1`](https://github.com/relybytes/actions-kubernetes-deploy) instead. The copy in
+> this monorepo predates the split, is missing features the extracted version
+> gained, and is not maintained.
+
 Deploy services to a Kubernetes cluster by applying YAML manifests, with namespace management, generic placeholder replacement and rollout monitoring.
 
 Pairs with [`k8s-image-build`](../k8s-image-build/) for a full build-and-deploy pipeline.

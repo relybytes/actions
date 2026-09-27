@@ -1,5 +1,9 @@
 # Kubernetes Image Build
 
+> **Unmaintained.** This action still works but receives no fixes, and no
+> workflow in the organisation calls it. See the
+> [repository README](../README.md).
+
 Build a Docker image and push it to a container registry, ready to be referenced by a Kubernetes Deployment.
 
 Pairs with [`k8s-deploy`](../k8s-deploy/) to form a complete build-and-deploy pipeline.

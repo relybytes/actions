@@ -1,5 +1,9 @@
 # Coolify Deploy
 
+> **Unmaintained.** This action still works but receives no fixes, and no
+> workflow in the organisation calls it. See the
+> [repository README](../README.md).
+
 Trigger a deployment on a [Coolify](https://coolify.io) instance (e.g. `https://hostingcloud.relybytes.com`) from a GitHub Actions workflow.
 
 Supports two trigger modes:

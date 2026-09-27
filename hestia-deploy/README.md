@@ -1,5 +1,9 @@
 # HestiaCP Deploy Action
 
+> **Unmaintained.** This action still works but receives no fixes, and no
+> workflow in the organisation calls it. See the
+> [repository README](../README.md).
+
 [![GitHub release](https://img.shields.io/github/release/relybytes/actions.svg)](https://github.com/relybytes/actions/releases)
 [![GitHub marketplace](https://img.shields.io/badge/marketplace-hestia--deploy-blue?logo=github)](https://github.com/marketplace/actions/hestiacp-deploy)
 
